@@ -9,18 +9,36 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: '#1A1C1E',
+    background: '#F8F9FA',
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#EAECEF',
+    textSecondary: '#6C757D',
+    brand: '#E65100', // Deep Orange/Amber
+    brandLight: '#FFF3E0',
+    success: '#2E7D32',
+    successLight: '#E8F5E9',
+    danger: '#D32F2F',
+    dangerLight: '#FFEBEE',
+    warning: '#F57C00',
+    warningLight: '#FFF3E0',
+    border: '#E0E0E0',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#F8F9FA',
+    background: '#0E1012', // Dark Charcoal
+    backgroundElement: '#181A1E', // Dark Element Card
+    backgroundSelected: '#2A2E35',
+    textSecondary: '#9A9FA5',
+    brand: '#FF9800', // Safety Amber
+    brandLight: '#2D1F10',
+    success: '#4CAF50',
+    successLight: '#1B2E1C',
+    danger: '#F44336',
+    dangerLight: '#321B1B',
+    warning: '#FFC107',
+    warningLight: '#2E2713',
+    border: '#2C3036',
   },
 } as const;
 
