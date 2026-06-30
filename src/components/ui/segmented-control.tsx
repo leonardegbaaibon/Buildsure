@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, LayoutChangeEvent, StyleProp, ViewStyle, DimensionValue } from 'react-native';
 
 interface SegmentedControlProps {
@@ -17,6 +17,7 @@ export function SegmentedControl({
   style,
 }: SegmentedControlProps) {
   const [containerWidth, setContainerWidth] = useState<number>(typeof width === 'number' ? width : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const animValue = React.useMemo(() => new Animated.Value(selectedIndex), []);
 
   useEffect(() => {
@@ -25,7 +26,7 @@ export function SegmentedControl({
       duration: 250,
       useNativeDriver: true,
     }).start();
-  }, [selectedIndex]);
+  }, [selectedIndex, animValue]);
 
   const onLayout = (event: LayoutChangeEvent) => {
     const { width: w } = event.nativeEvent.layout;
