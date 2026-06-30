@@ -17,7 +17,7 @@ export function SegmentedControl({
   style,
 }: SegmentedControlProps) {
   const [containerWidth, setContainerWidth] = useState<number>(typeof width === 'number' ? width : 0);
-  const animValue = useRef(new Animated.Value(selectedIndex)).current;
+  const animValue = React.useMemo(() => new Animated.Value(selectedIndex), []);
 
   useEffect(() => {
     Animated.timing(animValue, {

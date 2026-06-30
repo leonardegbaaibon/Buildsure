@@ -159,7 +159,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
   },
   imageShadowWrapper: {
     shadowColor: '#000000',
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.125, // #00000020
     shadowRadius: 2.6,
     elevation: 3,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     borderBottomLeftRadius: 36,
     borderBottomRightRadius: 36,
   },

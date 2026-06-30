@@ -151,14 +151,14 @@ const styles = StyleSheet.create({
   container: {
     position: 'relative',
     overflow: 'hidden',
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
   },
   mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 24,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     borderBottomWidth: 1,
     borderBottomColor: '#EBE6DC',
     zIndex: 2,

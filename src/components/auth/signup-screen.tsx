@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     flex: 1,
-    backgroundColor: '#FAF8F5', // Soft Cream background
+    backgroundColor: '#FEFAF4', // Soft Cream background
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     // marginTop: -20,

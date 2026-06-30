@@ -195,7 +195,7 @@ export default function NotificationsScreen({ onClose }: NotificationsScreenProp
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
   },
   header: {
     height: 56,

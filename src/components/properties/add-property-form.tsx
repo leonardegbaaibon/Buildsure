@@ -598,7 +598,7 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
   },
   header: {
     height: 56,
@@ -808,7 +808,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: '#EBE6DC',
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     gap: 12,
     alignItems: 'center',
   },
@@ -890,7 +890,7 @@ const styles = StyleSheet.create({
   counterBtnMinus: {
     width: 28,
     height: 28,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     borderWidth: 1,
     borderColor: '#EBE6DC',
     borderRadius: 4,

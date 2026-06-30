@@ -581,7 +581,7 @@ export default function PropertiesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
   },
   header: {
     height: 56,
@@ -955,7 +955,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     zIndex: 20,
   },
   analyticsContainer: {

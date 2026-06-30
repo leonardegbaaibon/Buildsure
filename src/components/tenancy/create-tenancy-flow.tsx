@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -47,22 +47,22 @@ interface UploadedFile {
 
 const mockProperties: PropertyOption[] = [
   {
-    id: 'prop-1',
-    title: 'Apo-Wumba Homes',
-    address: '12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT',
-    image: require('../../../assets/images/apo_wumba.png'),
+    id: 'p-1',
+    title: 'Apo Wumba Homes',
+    address: 'Plot 432, Apo Wumba District, Abuja, FCT',
+    image: require('../../../assets/images/properties/prop-1.png'),
   },
   {
-    id: 'prop-2',
-    title: 'Apo-Wumba Homes',
-    address: '12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT',
-    image: require('../../../assets/images/apo_wumba.png'),
+    id: 'p-2',
+    title: 'Wuse II Apartments',
+    address: '12 Aminu Kano Cres, Wuse, Abuja, FCT',
+    image: require('../../../assets/images/properties/prop-2.png'),
   },
   {
-    id: 'prop-3',
-    title: 'Apo-Wumba Homes',
-    address: '12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT',
-    image: require('../../../assets/images/apo_wumba.png'),
+    id: 'p-3',
+    title: 'Maitama Heights',
+    address: '5 Maitama Avenue, Maitama, Abuja, FCT',
+    image: require('../../../assets/images/properties/prop-3.png'),
   },
 ];
 
@@ -92,7 +92,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
   const [wizardStep, setWizardStep] = useState<number>(0); // 0: Type, 1: Property/Units, 2: Uploads, 3: Rent/Dates, 4: Resident, 5: Review
 
   // Progress bar smooth animation
-  const progressAnim = useRef(new Animated.Value(0.2)).current;
+  const progressAnim = useMemo(() => new Animated.Value(0.2), []);
 
   useEffect(() => {
     if (wizardStep >= 1 && wizardStep <= 5) {
@@ -1267,7 +1267,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
   },
   header: {
     height: 56,
@@ -1390,7 +1390,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 24,
     paddingVertical: 16,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     borderTopWidth: 1,
     borderTopColor: '#EBE6DC',
   },
@@ -1400,7 +1400,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingVertical: 16,
-    backgroundColor: '#FAF8F5',
+    backgroundColor: '#FEFAF4',
     borderTopWidth: 1,
     borderTopColor: '#EBE6DC',
   },
@@ -2051,7 +2051,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#D87C24',
     borderBottomWidth: 1,
-    borderBottomColor: '#FAF8F5',
+    borderBottomColor: '#FEFAF4',
     paddingBottom: 8,
     marginBottom: 4,
   },
