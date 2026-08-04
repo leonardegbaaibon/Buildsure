@@ -10,47 +10,61 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
-  Alert,
   Animated,
+  RefreshControl,
 } from 'react-native';
+import { useToast } from '@/components/ui/toast';
 import { SymbolView } from 'expo-symbols';
 import { router } from 'expo-router';
 import { AppBottomSheet } from '@/components/bottom-sheet';
-import { setTabBarHidden } from '@/utils/user-store';
+import {
+  setTabBarHidden,
+  setActiveTab as setGlobalActiveTab,
+  subscribeShouldStartAddProperty,
+  setShouldStartAddProperty,
+  getProperties,
+  setProperties as setGlobalProperties,
+  subscribeProperties,
+  PropertyItem,
+} from '@/utils/user-store';
 import { SegmentedControl } from '@/components/ui/segmented-control';
-import AddPropertyForm, { PropertyItem } from '@/components/properties/add-property-form';
+import AddPropertyForm from '@/components/properties/add-property-form';
 import PropertyDetails from '@/components/properties/property-details';
 import CreateTenancyFlow from '@/components/tenancy/create-tenancy-flow';
-
-const initialPropertiesList: PropertyItem[] = [
-  {
-    id: 'apo-wumba-1',
-    title: 'Apo-Wumba Homes',
-    address: '12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT',
-    type: 'multiple',
-    unitsCount: 5,
-    occupiedCount: 3,
-    hasImage: true,
-  },
-  {
-    id: 'apo-wumba-2',
-    title: 'Apo-Wumba Homes',
-    address: '12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT',
-    type: 'single',
-    hasImage: false,
-  },
-];
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchProperties } from '@/store/slices/property-slice';
 
 export default function PropertiesScreen() {
+  const { showToast } = useToast();
   const { width } = useWindowDimensions();
+  const dispatch = useAppDispatch();
+  const reduxProperties = useAppSelector((state) => state.properties.properties);
+  const reduxHeaderStats = useAppSelector((state) => state.properties.headerStats);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // List state
-  const [properties, setProperties] = useState<PropertyItem[]>(initialPropertiesList);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await dispatch(fetchProperties()).unwrap();
+    } catch {
+      // Handled in redux slice
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    dispatch(fetchProperties());
+  }, [dispatch]);
+
+  // Dynamic list derived from Redux
+  const displayProperties = reduxProperties;
+  const [hasPropertiesOverride, setHasProperties] = useState<boolean | null>(null);
+  const hasProperties = hasPropertiesOverride !== null ? hasPropertiesOverride : displayProperties.length > 0;
   
   // View states
   const [selectedProperty, setSelectedProperty] = useState<'apo-wumba' | null>(null);
   const [isAddingProperty, setIsAddingProperty] = useState(false);
-  const [hasProperties, setHasProperties] = useState(true);
   
   // Toggle states
   const [activeSegment, setActiveSegment] = useState<'properties' | 'analytics'>('properties');
@@ -73,6 +87,26 @@ export default function PropertiesScreen() {
   useEffect(() => {
     return () => {
       setTabBarHidden(false);
+    };
+  }, []);
+
+  // Listen to global "Add Property" trigger from other screens (e.g. Home screen)
+  useEffect(() => {
+    const unsubscribe = subscribeShouldStartAddProperty((start) => {
+      if (start) {
+        setIsAddingProperty(true);
+        // Reset trigger state immediately
+        setShouldStartAddProperty(false);
+      }
+    });
+    
+    const unsubscribeProperties = subscribeProperties(() => {
+      dispatch(fetchProperties());
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeProperties();
     };
   }, []);
 
@@ -164,11 +198,9 @@ export default function PropertiesScreen() {
     setIsAddingProperty(true);
   };
 
-  const handleAddPropertySuccess = (newProperty: PropertyItem) => {
-    setProperties([...properties, newProperty]);
-    setHasProperties(true);
+  const handleAddPropertySuccess = () => {
     setIsAddingProperty(false);
-    Alert.alert('Success', 'Property added successfully!');
+    dispatch(fetchProperties());
   };
 
   const categoryTabWidth = (width - 48) / 3;
@@ -184,7 +216,7 @@ export default function PropertiesScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.replace('/')}
+            onPress={() => setGlobalActiveTab('home')}
             activeOpacity={0.7}
           >
             <SymbolView
@@ -244,8 +276,19 @@ export default function PropertiesScreen() {
           </TouchableOpacity>
         </View>
 
-        {hasProperties && properties.length > 0 ? (
-          <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+        {hasProperties && displayProperties.length > 0 ? (
+          <ScrollView 
+            style={styles.body} 
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                tintColor="#D87C24"
+                colors={['#D87C24']}
+              />
+            }
+          >
             <TouchableOpacity onPress={() => setHasProperties(false)} activeOpacity={0.9}>
               <Text style={styles.sectionTitle}>Properties Summary</Text>
             </TouchableOpacity>
@@ -269,7 +312,9 @@ export default function PropertiesScreen() {
                   </View>
                   <Text style={styles.orangeCardLabel} numberOfLines={1}>Total Properties</Text>
                 </View>
-                <Text style={styles.cardValue}>{properties.length}</Text>
+                <Text style={styles.cardValue}>
+                  {reduxHeaderStats ? reduxHeaderStats.totalProperties.toLocaleString() : displayProperties.length}
+                </Text>
                 <View style={styles.cardTrendRow}>
                   <SymbolView
                     name={{ ios: 'triangle.fill', android: 'arrow_drop_up', web: 'arrow_drop_up' }}
@@ -295,7 +340,11 @@ export default function PropertiesScreen() {
                   </View>
                   <Text style={styles.greenCardLabel} numberOfLines={1}>Held Deposit</Text>
                 </View>
-                <Text style={styles.cardValue}>₦2,000,000</Text>
+                <Text style={styles.cardValue}>
+                  {reduxHeaderStats?.heldDeposit 
+                    ? `₦${reduxHeaderStats.heldDeposit.total.toLocaleString()}` 
+                    : '₦0'}
+                </Text>
                 <View style={styles.cardTrendRow}>
                   <SymbolView
                     name={{ ios: 'triangle.fill', android: 'arrow_drop_up', web: 'arrow_drop_up' }}
@@ -360,9 +409,6 @@ export default function PropertiesScreen() {
                     >
                       <View style={styles.tabLabelContainer}>
                         <Text style={[styles.tabLabel, activeTab === 'pending' && styles.tabLabelActive]}>Pending</Text>
-                        <View style={styles.redBadge}>
-                          <Text style={styles.redBadgeText}>1</Text>
-                        </View>
                       </View>
                     </TouchableOpacity>
 
@@ -377,76 +423,87 @@ export default function PropertiesScreen() {
 
                   {/* Properties List */}
                   <View style={styles.listContainer}>
-                    {properties.map((property) => (
-                      <TouchableOpacity 
-                        key={property.id}
-                        style={styles.propertyCard}
-                        onPress={() => setSelectedProperty('apo-wumba')}
-                        activeOpacity={0.9}
-                      >
-                        {property.hasImage ? (
-                          <Image
-                            source={require('../../assets/images/apo_wumba.png')}
-                            style={styles.propertyImage}
-                          />
-                        ) : (
-                          <View style={styles.placeholderImageContainer}>
-                            <SymbolView
-                              name={{ ios: 'house', android: 'home', web: 'home' }}
-                              size={24}
-                              tintColor="#D87C24"
-                              weight="semibold"
-                            />
-                          </View>
-                        )}
-                        
-                        <View style={styles.propertyDetails}>
-                          <Text style={styles.propertyTitle}>{property.title}</Text>
-                          <Text style={styles.propertyAddress} numberOfLines={2}>
-                            {property.address}
-                          </Text>
-                          <View style={styles.tagsContainer}>
-                            {property.type === 'multiple' ? (
-                              <>
-                                <View style={[styles.tag, styles.orangeTag]}>
-                                  <Text style={styles.orangeTagText}>Multiple Units</Text>
-                                </View>
-                                {property.unitsCount && (
-                                  <View style={[styles.tag, styles.pinkTag]}>
-                                    <Text style={styles.pinkTagText}>{property.unitsCount} Rental Units</Text>
-                                  </View>
-                                )}
-                                {property.occupiedCount && (
-                                  <View style={[styles.tag, styles.blueTag]}>
-                                    <Text style={styles.blueTagText}>{property.occupiedCount} Occupied</Text>
-                                  </View>
-                                )}
-                              </>
-                            ) : (
-                              <View style={[styles.tag, styles.orangeTag]}>
-                                <Text style={styles.orangeTagText}>Single Unit</Text>
-                              </View>
-                            )}
-                          </View>
-                        </View>
-                        
-                        <TouchableOpacity
-                          style={styles.menuButton}
-                          onPress={(e) => {
-                            e.stopPropagation?.();
-                            setIsMenuVisible(true);
-                          }}
-                          activeOpacity={0.7}
+                    {displayProperties.map((property: any) => {
+                      const title = property.propertyName || property.title || 'Property';
+                      const address = property.streetAddress 
+                        ? `${property.streetAddress}${property.city ? `, ${property.city}` : ''}${property.state ? `, ${property.state}` : ''}`
+                        : property.address || 'Address not specified';
+                      const occupancyType = property.occupancyType || property.type || 'single';
+                      const unitCount = property.unitCount || property.unitsCount;
+                      const occupiedCount = property.occupiedCount;
+                      const coverImage = property.coverImage;
+
+                      return (
+                        <TouchableOpacity 
+                          key={property.id}
+                          style={styles.propertyCard}
+                          onPress={() => setSelectedProperty('apo-wumba')}
+                          activeOpacity={0.9}
                         >
-                          <SymbolView
-                            name={{ ios: 'ellipsis', android: 'more_vert', web: 'more_vert' } as const}
-                            size={18}
-                            tintColor="#D87C24"
-                            weight="bold"
-                          />
+                          {coverImage && coverImage.startsWith('http') ? (
+                            <Image
+                              source={{ uri: coverImage }}
+                              style={styles.propertyImage}
+                            />
+                          ) : (
+                            <View style={styles.placeholderImageContainer}>
+                              <SymbolView
+                                name={{ ios: 'house', android: 'home', web: 'home' }}
+                                size={24}
+                                tintColor="#D87C24"
+                                weight="semibold"
+                              />
+                            </View>
+                          )}
+                          
+                          <View style={styles.propertyDetails}>
+                            <Text style={styles.propertyTitle}>{title}</Text>
+                            <Text style={styles.propertyAddress} numberOfLines={2}>
+                              {address}
+                            </Text>
+                            <View style={styles.tagsContainer}>
+                              {occupancyType === 'multiple' ? (
+                                <>
+                                  <View style={[styles.tag, styles.orangeTag]}>
+                                    <Text style={styles.orangeTagText}>Multiple Units</Text>
+                                  </View>
+                                  {unitCount ? (
+                                    <View style={[styles.tag, styles.pinkTag]}>
+                                      <Text style={styles.pinkTagText}>{unitCount} Rental Units</Text>
+                                    </View>
+                                  ) : null}
+                                  {occupiedCount ? (
+                                    <View style={[styles.tag, styles.blueTag]}>
+                                      <Text style={styles.blueTagText}>{occupiedCount} Occupied</Text>
+                                    </View>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <View style={[styles.tag, styles.orangeTag]}>
+                                  <Text style={styles.orangeTagText}>Single Unit</Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                          
+                          <TouchableOpacity
+                            style={styles.menuButton}
+                            onPress={(e) => {
+                              e.stopPropagation?.();
+                              setIsMenuVisible(true);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <SymbolView
+                              name={{ ios: 'ellipsis', android: 'more_vert', web: 'more_vert' } as const}
+                              size={18}
+                              tintColor="#D87C24"
+                              weight="bold"
+                            />
+                          </TouchableOpacity>
                         </TouchableOpacity>
-                      </TouchableOpacity>
-                    ))}
+                      );
+                    })}
                   </View>
                 </View>
               ) : (
@@ -488,10 +545,21 @@ export default function PropertiesScreen() {
             </Animated.View>
           </ScrollView>
         ) : (
-          /* Empty State Content */
-          <View style={styles.emptyStateContainer}>
+          /* Empty State Content with RefreshControl */
+          <ScrollView
+            contentContainerStyle={styles.emptyStateContainer}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                tintColor="#D87C24"
+                colors={['#D87C24']}
+              />
+            }
+          >
             <Image
-              source={require('../../assets/images/empty_box.png')}
+              source={require('../../assets/images/empty_state.png')}
               style={styles.emptyBoxImage}
               resizeMode="contain"
             />
@@ -509,7 +577,7 @@ export default function PropertiesScreen() {
             >
               <Text style={styles.addPropertyBtnText}>Add Property →</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         )}
 
         {/* Options Menu Bottom Sheet */}
@@ -520,16 +588,15 @@ export default function PropertiesScreen() {
             {
               label: 'Edit Property',
               onPress: () => {
-                Alert.alert('Edit Property', 'Action triggered successfully!');
+                showToast('Edit Property: Action triggered successfully!', 'success');
               },
             },
             {
               label: 'Delete Property',
               type: 'danger',
               onPress: () => {
-                setHasProperties(false);
+                setGlobalProperties([]);
                 setSelectedProperty(null);
-                setProperties([]);
               },
             },
           ]}
@@ -812,7 +879,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     marginHorizontal: 24,
-    paddingBottom: 40,
+    paddingBottom: 120,
   },
   propertyCard: {
     backgroundColor: '#FFFFFF',
@@ -962,7 +1029,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 24,
     marginTop: 8,
     gap: 16,
-    paddingBottom: 40,
+    paddingBottom: 120,
   },
   analyticsCard: {
     backgroundColor: '#FFFFFF',

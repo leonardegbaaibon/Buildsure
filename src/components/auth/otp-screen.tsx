@@ -11,21 +11,29 @@ import {
   KeyboardAvoidingView,
   Pressable,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { AppBottomSheet } from '../bottom-sheet';
+import { BackButton } from './back-button';
+import { PhoneIllustration } from './phone-illustration';
+import { authService } from '@/utils/auth-service';
+import { useToast } from '@/components/ui/toast';
 
 interface OtpScreenProps {
   phoneNumber: string;
+  userId: string;
   onBack: () => void;
   onConfirm: () => void;
 }
 
-export default function OtpScreen({ phoneNumber, onBack, onConfirm }: OtpScreenProps) {
+export default function OtpScreen({ phoneNumber, userId, onBack, onConfirm }: OtpScreenProps) {
+  const { showToast } = useToast();
   const [code, setCode] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [timer, setTimer] = useState(59);
   const [isSheetVisible, setIsSheetVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const textInputRef = useRef<TextInput>(null);
 
   // Timer countdown logic
@@ -37,15 +45,32 @@ export default function OtpScreen({ phoneNumber, onBack, onConfirm }: OtpScreenP
     return () => clearInterval(interval);
   }, [timer]);
 
-  const handleResend = () => {
-    setTimer(59);
-    setCode('');
-    // Optionally trigger API call to send new code
+  const handleResend = async () => {
+    setIsLoading(true);
+    try {
+      await authService.resendPhoneCode(userId);
+      setTimer(59);
+      setCode('');
+      showToast('A new 6-digit code has been sent to your phone.', 'success');
+    } catch (error: any) {
+      showToast(error.message || 'Could not resend verification code.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (code.length === 6) {
-      setIsSheetVisible(true);
+      setIsLoading(true);
+      try {
+        await authService.verifyPhone(userId, code);
+        setIsSheetVisible(true);
+      } catch (error: any) {
+        showToast(error.message || 'The verification code entered is incorrect.', 'error');
+        setCode('');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -85,26 +110,12 @@ export default function OtpScreen({ phoneNumber, onBack, onConfirm }: OtpScreenP
       >
         {/* Back Button */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton} activeOpacity={0.7}>
-            <SymbolView
-              name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-              size={20}
-              tintColor="#1A1C1E"
-              weight="bold"
-            />
-          </TouchableOpacity>
+          <BackButton onPress={onBack} />
         </View>
 
-        {/* Centered Circle Icon */}
+        {/* Centered Phone Illustration */}
         <View style={styles.iconWrapper}>
-          <View style={styles.iconCircle}>
-            <SymbolView
-              name={{ ios: 'phone.fill', android: 'phone_in_talk', web: 'phone_in_talk' }}
-              size={64}
-              tintColor="#8D6E63" // Brownish-amber handset color
-              weight="semibold"
-            />
-          </View>
+          <PhoneIllustration />
         </View>
 
         {/* Title & Subtitle */}
@@ -155,13 +166,17 @@ export default function OtpScreen({ phoneNumber, onBack, onConfirm }: OtpScreenP
         <TouchableOpacity
           style={[
             styles.confirmButton,
-            code.length < 6 && styles.confirmButtonDisabled,
+            (code.length < 6 || isLoading) && styles.confirmButtonDisabled,
           ]}
           onPress={handleVerify}
-          disabled={code.length < 6}
+          disabled={code.length < 6 || isLoading}
           activeOpacity={0.8}
         >
-          <Text style={styles.confirmButtonText}>Confirm</Text>
+          {isLoading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.confirmButtonText}>Confirm</Text>
+          )}
         </TouchableOpacity>
       </KeyboardAvoidingView>
 

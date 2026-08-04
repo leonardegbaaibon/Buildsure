@@ -19,6 +19,13 @@ import { SymbolView } from 'expo-symbols';
 import { AppBottomSheet } from '@/components/bottom-sheet';
 import * as DocumentPicker from 'expo-document-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  getProperties,
+  subscribeProperties,
+  setShouldStartAddProperty,
+  setActiveTab,
+  PropertyItem,
+} from '@/utils/user-store';
 
 interface CreateTenancyFlowProps {
   visible: boolean;
@@ -49,19 +56,19 @@ const mockProperties: PropertyOption[] = [
     id: 'p-1',
     title: 'Apo Wumba Homes',
     address: 'Plot 432, Apo Wumba District, Abuja, FCT',
-    image: require('../../../assets/images/properties/prop-1.png'),
+    image: require('../../../assets/images/apo_wumba.png'),
   },
   {
     id: 'p-2',
     title: 'Wuse II Apartments',
     address: '12 Aminu Kano Cres, Wuse, Abuja, FCT',
-    image: require('../../../assets/images/properties/prop-2.png'),
+    image: require('../../../assets/images/onboarding_1.png'),
   },
   {
     id: 'p-3',
     title: 'Maitama Heights',
     address: '5 Maitama Avenue, Maitama, Abuja, FCT',
-    image: require('../../../assets/images/properties/prop-3.png'),
+    image: require('../../../assets/images/onboarding_3.png'),
   },
 ];
 
@@ -89,6 +96,25 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
   // Wizard flow states
   const [tenancyType, setTenancyType] = useState<'new' | 'existing'>('new');
   const [wizardStep, setWizardStep] = useState<number>(0); 
+
+  // Shared properties state loaded dynamically
+  const [properties, setProperties] = useState<PropertyOption[]>([]);
+
+  useEffect(() => {
+    const updateList = (list: PropertyItem[]) => {
+      setProperties(list.map(p => ({
+        id: p.id,
+        title: p.title,
+        address: p.address,
+        image: p.hasImage 
+          ? require('../../../assets/images/apo_wumba.png') 
+          : require('../../../assets/images/onboarding_1.png')
+      })));
+    };
+    updateList(getProperties());
+    const unsubscribe = subscribeProperties(updateList);
+    return unsubscribe;
+  }, []);
 
   // Step sequence mapping:
   const steps = useMemo(() => {
@@ -455,7 +481,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
     </View>
   );
 
-  // Screen 1: Property Details & Unit Selection (Page 1 of 5)
+  // Screen 1: Property Details & Unit Selection (Page 1 of 3)
   const renderPropertyAndUnits = () => {
     const unitBoxWidth = (width - 48 - 20) / 3;
 
@@ -466,7 +492,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
           <View style={styles.progressBarBg}>
             <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
           </View>
-          <Text style={styles.progressText}>Page 1 of 5</Text>
+          <Text style={styles.progressText}>Page 1 of 3</Text>
         </View>
 
         {/* Title & Subtitle */}
@@ -489,13 +515,17 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
             >
               <Text style={styles.dropdownPlaceholder}>Select Property</Text>
               <SymbolView
-                name={{ ios: 'chevron.down', android: 'arrow_drop_down', web: 'arrow_drop_down' }}
-                size={18}
+                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                size={16}
                 tintColor="#8A8D93"
               />
             </TouchableOpacity>
           ) : (
-            <View style={styles.selectedPropertyCard}>
+            <TouchableOpacity
+              style={styles.selectedPropertyCardButton}
+              onPress={() => setIsPropertySheetVisible(true)}
+              activeOpacity={0.7}
+            >
               <Image
                 source={selectedProperty.image}
                 style={styles.propertyThumb}
@@ -506,25 +536,27 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
                   {selectedProperty.address}
                 </Text>
               </View>
-              <View style={styles.selectedCheckBadge}>
-                <SymbolView
-                  name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
-                  size={18}
-                  tintColor="#D87C24"
-                />
-              </View>
-            </View>
+              <SymbolView
+                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                size={16}
+                tintColor="#8A8D93"
+              />
+            </TouchableOpacity>
           )}
 
-          {/* Add another property link */}
-          <TouchableOpacity style={styles.addPropertyLink} activeOpacity={0.7}>
-            <SymbolView
-              name={{ ios: 'doc.badge.plus', android: 'note_add', web: 'note_add' }}
-              size={16}
-              tintColor="#D87C24"
-            />
-            <Text style={styles.addPropertyLinkText}>Add another property</Text>
-          </TouchableOpacity>
+          {/* Info Banner */}
+          <View style={styles.tenancyInfoBanner}>
+            <View style={styles.tenancyInfoIconBg}>
+              <SymbolView
+                name={{ ios: 'info.circle', android: 'info', web: 'info' }}
+                size={14}
+                tintColor="#D87C24"
+              />
+            </View>
+            <Text style={styles.tenancyInfoText}>
+              A 1% adminstration charge applies to every new tenancy created and any existing tenancy that is under 1 month.
+            </Text>
+          </View>
         </View>
 
         {/* Units Selection Grid */}
@@ -1219,63 +1251,91 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
           <Text style={styles.headerTitle}>Create Tenancy</Text>
         </View>
 
-        {/* Scroll Body */}
-        <ScrollView 
-          style={styles.body} 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {steps[wizardStep] === 'type' && renderTypeSelection()}
-          {steps[wizardStep] === 'property' && renderPropertyAndUnits()}
-          {steps[wizardStep] === 'uploads' && renderUploadDocuments()}
-          {steps[wizardStep] === 'resident' && renderResidentDetails()}
-          {steps[wizardStep] === 'rent' && renderRentDates()}
-          {steps[wizardStep] === 'confirm' && renderReviewSubmit()}
-          {steps[wizardStep] === 'sign' && renderSignAgreement()}
-        </ScrollView>
-
-        {/* Custom Layout Footer */}
-        {steps[wizardStep] === 'type' || (steps[wizardStep] === 'property' && !selectedUnit) ? (
-          /* Single Proceed Button footer */
-          <View style={styles.footer}>
+        {properties.length === 0 ? (
+          /* Empty Create Tenancy State when no properties exist */
+          <View style={styles.emptyTenancyContainer}>
+            <Image
+              source={require('../../../assets/images/empty_state.png')}
+              style={styles.emptyTenancyBoxImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.emptyTenancyTitle}>You do not have any property yet!</Text>
+            <Text style={styles.emptyTenancySubtitle}>
+              Before you are able to set up a tenancy, you need to add your property on the application beforehand.
+            </Text>
             <TouchableOpacity
-              style={styles.proceedButton}
-              onPress={handleProceed}
+              style={styles.emptyTenancyAddBtn}
+              onPress={() => {
+                onClose();
+                setShouldStartAddProperty(true);
+                setActiveTab('properties');
+              }}
               activeOpacity={0.8}
             >
-              <Text style={styles.proceedButtonText}>Proceed</Text>
+              <Text style={styles.emptyTenancyAddBtnText}>Add Property →</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          /* Multi Button footer (Back button on bottom left + Proceed on right) */
-          <View style={styles.footerRowContainer}>
-            <TouchableOpacity
-              style={styles.squareBackButton}
-              onPress={handleBack}
-              activeOpacity={0.7}
+          <>
+            {/* Scroll Body */}
+            <ScrollView 
+              style={styles.body} 
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
             >
-              <SymbolView
-                name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
-                size={18}
-                tintColor="#1A1C1E"
-                weight="bold"
-              />
-            </TouchableOpacity>
+              {steps[wizardStep] === 'type' && renderTypeSelection()}
+              {steps[wizardStep] === 'property' && renderPropertyAndUnits()}
+              {steps[wizardStep] === 'uploads' && renderUploadDocuments()}
+              {steps[wizardStep] === 'resident' && renderResidentDetails()}
+              {steps[wizardStep] === 'rent' && renderRentDates()}
+              {steps[wizardStep] === 'confirm' && renderReviewSubmit()}
+              {steps[wizardStep] === 'sign' && renderSignAgreement()}
+            </ScrollView>
 
-            <TouchableOpacity
-              style={styles.proceedButtonRight}
-              onPress={handleProceed}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.proceedButtonText}>
-                {steps[wizardStep] === 'confirm' 
-                  ? (tenancyType === 'new' ? 'Generate Agreement' : 'Create Tenancy') 
-                  : steps[wizardStep] === 'sign' 
-                    ? 'Complete Tenancy' 
-                    : 'Proceed'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+            {/* Custom Layout Footer */}
+            {steps[wizardStep] === 'type' || (steps[wizardStep] === 'property' && !selectedUnit) ? (
+              /* Single Proceed Button footer */
+              <View style={styles.footer}>
+                <TouchableOpacity
+                  style={styles.proceedButton}
+                  onPress={handleProceed}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.proceedButtonText}>Proceed</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              /* Multi Button footer (Back button on bottom left + Proceed on right) */
+              <View style={styles.footerRowContainer}>
+                <TouchableOpacity
+                  style={styles.squareBackButton}
+                  onPress={handleBack}
+                  activeOpacity={0.7}
+                >
+                  <SymbolView
+                    name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                    size={18}
+                    tintColor="#1A1C1E"
+                    weight="bold"
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.proceedButtonRight}
+                  onPress={handleProceed}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.proceedButtonText}>
+                    {steps[wizardStep] === 'confirm' 
+                      ? (tenancyType === 'new' ? 'Generate Agreement' : 'Create Tenancy') 
+                      : steps[wizardStep] === 'sign' 
+                        ? 'Complete Tenancy' 
+                        : 'Proceed'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         )}
 
         {/* Screen 3: Choose Property Bottom Sheet */}
@@ -1285,7 +1345,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
           title="Choose Property"
         >
           <View style={styles.bottomSheetList}>
-            {mockProperties.map((prop, index) => (
+            {properties.map((prop, index) => (
               <TouchableOpacity
                 key={index}
                 style={styles.sheetItemRow}
@@ -1309,8 +1369,8 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
             <TouchableOpacity
               style={styles.sheetProceedButton}
               onPress={() => {
-                if (mockProperties.length > 0) {
-                  selectPropertyFromSheet(mockProperties[0]);
+                if (properties.length > 0) {
+                  selectPropertyFromSheet(properties[0]);
                 }
               }}
               activeOpacity={0.8}
@@ -2558,5 +2618,94 @@ const styles = StyleSheet.create({
     color: '#D87C24',
     fontSize: 15,
     fontWeight: '700',
+  },
+  
+  // Empty State styling
+  emptyTenancyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 80,
+  },
+  emptyTenancyBoxImage: {
+    width: 140,
+    height: 140,
+    marginBottom: 20,
+  },
+  emptyTenancyTitle: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A1C1E',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  emptyTenancySubtitle: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 14,
+    color: '#8A8D93',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  emptyTenancyAddBtn: {
+    backgroundColor: '#FFA726',
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    shadowColor: '#FFA726',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  emptyTenancyAddBtnText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1C1E',
+  },
+
+  // Selected Property card as a button
+  selectedPropertyCardButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#EBE6DC',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    width: '100%',
+  },
+
+  // Info Banner step 1 styling
+  tenancyInfoBanner: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFDF9',
+    borderColor: '#FFE3C6',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 14,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  tenancyInfoIconBg: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFF5EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tenancyInfoText: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 12,
+    color: '#8A8D93',
+    flex: 1,
+    lineHeight: 18,
   },
 });

@@ -10,6 +10,7 @@ import {
   Animated,
   PanResponder,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 
 export interface BottomSheetOption {
@@ -24,6 +25,7 @@ interface AppBottomSheetProps {
   title?: string;
   options?: BottomSheetOption[];
   children?: React.ReactNode;
+  showGlowBackground?: boolean;
 }
 
 export function AppBottomSheet({
@@ -32,6 +34,7 @@ export function AppBottomSheet({
   title,
   options,
   children,
+  showGlowBackground,
 }: AppBottomSheetProps) {
   const { height: windowHeight } = useWindowDimensions();
   const [showModal, setShowModal] = useState(visible);
@@ -139,6 +142,13 @@ export function AppBottomSheet({
           ]}
           {...panResponder.panHandlers}
         >
+          {showGlowBackground && (
+            <Image
+              source={require('../../assets/images/sheet_bg_glow.png')}
+              style={styles.sheetGlowImage}
+              resizeMode="contain"
+            />
+          )}
           {/* Drag Handle Indicator */}
           <View style={styles.dragHandle} />
 
@@ -190,6 +200,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: Platform.OS === 'ios' ? 44 : 28,
     alignItems: 'center',
+    overflow: 'hidden',
   },
   dragHandle: {
     width: 44,
@@ -221,6 +232,16 @@ const styles = StyleSheet.create({
   },
   optionTextDanger: {
     color: '#EF4444',
+  },
+  sheetGlowImage: {
+    position: 'absolute',
+    top: -20,
+    right: -20,
+    width: 180,
+    height: 180,
+    opacity: 0.18, // Blurry background watermark opacity
+    transform: [{ rotate: '15deg' }],
+    zIndex: -1,
   },
 });
 

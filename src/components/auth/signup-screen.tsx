@@ -12,11 +12,10 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { FontAwesome } from '@expo/vector-icons';
-import { setUserName, setUserPhone } from '@/utils/user-store';
+import { SocialLoginButton } from './social-login-button';
 
 interface SignUpScreenProps {
-  onSignUp: (phoneNumber: string) => void;
+  onSignUp: (data: { firstName: string; lastName: string; email: string; password?: string }) => void;
   onLoginPress?: () => void;
 }
 
@@ -24,7 +23,6 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
@@ -39,15 +37,12 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
 
   const handleSignUp = () => {
     // Basic validation
-    if (!firstName || !lastName || !email || !phoneNumber || !isPasswordValid) {
+    if (!firstName || !lastName || !email || !isPasswordValid) {
       alert('Please fill in all fields correctly');
       return;
     }
-    // Save to global user store
-    setUserName(`${firstName} ${lastName}`);
-    setUserPhone(phoneNumber);
-    // Proceed to OTP layout passing user phone number
-    onSignUp(phoneNumber);
+    // Proceed to Verify Phone number layout with fields
+    onSignUp({ firstName, lastName, email, password });
   };
 
   return (
@@ -88,15 +83,8 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
         >
           {/* Social Logins */}
           <View style={styles.socialContainer}>
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
-              <FontAwesome name="google" size={18} color="#EA4335" style={styles.socialIcon} />
-              <Text style={styles.socialButtonText}>Sign up with Google</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
-              <FontAwesome name="apple" size={20} color="#000000" style={styles.socialIcon} />
-              <Text style={styles.socialButtonText}>Sign up with Apple</Text>
-            </TouchableOpacity>
+            <SocialLoginButton provider="google" action="signup" />
+            <SocialLoginButton provider="apple" action="signup" />
           </View>
 
           {/* Divider */}
@@ -143,30 +131,6 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
                 value={email}
                 onChangeText={setEmail}
               />
-            </View>
-
-            <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Phone Number</Text>
-              <View style={styles.phoneInputContainer}>
-                {/* Country Code Picker mockup */}
-                <TouchableOpacity style={styles.countryPicker} activeOpacity={0.7}>
-                  <Text style={styles.flag}>🇳🇬</Text>
-                  <Text style={styles.countryCode}>+234</Text>
-                  <SymbolView
-                    name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }}
-                    size={12}
-                    tintColor="#8A8D93"
-                  />
-                </TouchableOpacity>
-                <TextInput
-                  style={styles.phoneInput}
-                  placeholder="Enter Phone Number"
-                  placeholderTextColor="#A0A5B0"
-                  keyboardType="phone-pad"
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                />
-              </View>
             </View>
 
             <View style={styles.fieldContainer}>
@@ -283,10 +247,10 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
           <TouchableOpacity
             style={[
               styles.submitButton,
-              (!firstName || !lastName || !email || !phoneNumber || !isPasswordValid) && styles.submitButtonDisabled
+              (!firstName || !lastName || !email || !isPasswordValid) && styles.submitButtonDisabled
             ]}
             onPress={handleSignUp}
-            disabled={!firstName || !lastName || !email || !phoneNumber || !isPasswordValid}
+            disabled={!firstName || !lastName || !email || !isPasswordValid}
             activeOpacity={0.8}
           >
             <Text style={styles.submitButtonText}>Get Started</Text>
@@ -324,6 +288,15 @@ const styles = StyleSheet.create({
   },
   headerContent: {
     paddingHorizontal: 24,
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Platform.OS === 'ios' ? 12 : 24,
   },
   headerTitle: {
     fontFamily: 'Satoshi-Regular',
@@ -367,30 +340,6 @@ const styles = StyleSheet.create({
   socialContainer: {
     gap: 12,
     marginBottom: 20,
-  },
-  socialButton: {
-    flexDirection: 'row',
-    height: 48,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#EBE6DC',
-    borderWidth: 1.5,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  socialIcon: {
-    marginRight: 10,
-  },
-  socialButtonText: {
-    fontFamily: 'Satoshi-Medium',
-    color: '#6C757D',
-    fontSize: 14,
-    fontWeight: '600',
   },
   dividerContainer: {
     flexDirection: 'row',

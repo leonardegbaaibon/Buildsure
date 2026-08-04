@@ -7,24 +7,31 @@ import {
   ScrollView,
   Image,
   Modal,
+  TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { getUserName } from '@/utils/user-store';
+import { getUserName, setActiveTab, setShouldStartAddProperty } from '@/utils/user-store';
 import {
   BrandHeader,
   PortfolioCard,
   ActionRow,
   OverviewCard,
-  NotificationNudge,
 } from '@/components/home/home-components';
 import NotificationsScreen from '@/components/notifications/notifications-screen';
 import CreateTenancyFlow from '@/components/tenancy/create-tenancy-flow';
+import UploadContractFlow from '@/components/tenancy/upload-contract-flow';
+import { useDashboard } from '@/hooks/use-dashboard';
 
 export default function HomeScreen() {
-  const userName = getUserName() || 'Saad Bashar';
-  const [showNudge, setShowNudge] = useState(true);
+  const { data, isRefreshing, refetch, formatCurrency, formatPercentChange } = useDashboard();
   const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
   const [isCreateTenancyVisible, setIsCreateTenancyVisible] = useState(false);
+  const [isUploadVisible, setIsUploadVisible] = useState(false);
+
+  // Compute display name from API or local user store fallback
+  const apiUserName = `${data.user.firstName || ''} ${data.user.lastName || ''}`.trim();
+  const displayName = apiUserName || getUserName() || 'User';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -34,21 +41,21 @@ export default function HomeScreen() {
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-      >
-        {/* Notification Nudge */}
-        {showNudge && (
-          <NotificationNudge 
-            onClose={() => setShowNudge(false)} 
-            onNotificationPress={() => setIsNotificationsVisible(true)}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refetch}
+            tintColor="#D87C24"
+            colors={['#D87C24']}
           />
-        )}
-
+        }
+      >
         {/* Profile/Greeting Section */}
         <View style={styles.profileSection}>
           <View style={styles.profileHeaderRow}>
             <View style={styles.profileTextContainer}>
               <Text style={styles.welcomeText}>Welcome back,</Text>
-              <Text style={styles.userNameText}>{userName}</Text>
+              <Text style={styles.userNameText}>{displayName}</Text>
               <Text style={styles.welcomeSubtitle}>
                 Here's what is happening with your properties today.
               </Text>
@@ -56,30 +63,74 @@ export default function HomeScreen() {
             
             {/* Avatar image frame */}
             <View style={styles.avatarContainer}>
-              <Image
-                source={require('../../assets/images/favicon.png')}
-                style={styles.avatarImage}
-                resizeMode="cover"
-              />
-              <View style={styles.avatarOverlay}>
-                <SymbolView
-                  name={{ ios: 'person.fill', android: 'person', web: 'person' }}
-                  size={24}
-                  tintColor="#D87C24"
+              {data.user.profilePicture ? (
+                <Image
+                  source={{ uri: data.user.profilePicture }}
+                  style={styles.avatarImageFull}
+                  resizeMode="cover"
                 />
-              </View>
+              ) : (
+                <>
+                  <Image
+                    source={require('../../assets/images/favicon.png')}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.avatarOverlay}>
+                    <SymbolView
+                      name={{ ios: 'person.fill', android: 'person', web: 'person' }}
+                      size={24}
+                      tintColor="#D87C24"
+                    />
+                  </View>
+                </>
+              )}
             </View>
           </View>
         </View>
 
-        {/* Portfolio Value Card (Unblurred amount with vs last month trend) */}
+        {/* Portfolio Value Card */}
         <PortfolioCard 
-          value="₦98,400,000" 
-          trend="+2.65%" 
+          value={formatCurrency(data.portfolioValue.total, data.portfolioValue.currency)} 
+          trend={formatPercentChange(data.portfolioValue.percentChange)}
+          currency={data.portfolioValue.currency}
+          chartData={data.portfolioValue.chartData}
         />
 
+        {/* Dynamic Action Banners from API */}
+        {data.banners && data.banners.length > 0 && (
+          data.banners.map((banner, index) => (
+            <TouchableOpacity 
+              key={banner.tenancyId || index}
+              style={styles.uploadNudgeContainer} 
+              activeOpacity={0.9}
+              onPress={() => setIsUploadVisible(true)}
+            >
+              <View style={styles.uploadNudgeIconContainer}>
+                <SymbolView
+                  name={{ ios: 'arrow.up.doc.fill', android: 'upload', web: 'upload' }}
+                  size={18}
+                  tintColor="#D87C24"
+                />
+              </View>
+              <View style={styles.uploadNudgeTextContainer}>
+                <Text style={styles.uploadNudgeText}>
+                  {banner.message && banner.message !== 'string' ? banner.message : 'Upload the signed contract to complete the tenancy.'}
+                </Text>
+                <Text style={styles.uploadNudgeLink}>Upload Now ›</Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
+
         {/* Action Row */}
-        <ActionRow onCreateTenancyPress={() => setIsCreateTenancyVisible(true)} />
+        <ActionRow
+          onCreateTenancyPress={() => setIsCreateTenancyVisible(true)}
+          onAddPropertyPress={() => {
+            setShouldStartAddProperty(true);
+            setActiveTab('properties');
+          }}
+        />
 
         {/* Overview Stats (2x2 Grid) */}
         <View style={styles.overviewSection}>
@@ -88,15 +139,15 @@ export default function HomeScreen() {
           <View style={styles.gridRow}>
             <OverviewCard
               title="Total Properties"
-              value="2"
-              trend="+1.3%"
+              value={data.overview.totalProperties.count.toLocaleString()}
+              trend={formatPercentChange(data.overview.totalProperties.percentChange)}
               iconName="house"
               themeColor="orange"
             />
             <OverviewCard
               title="Active Tenancies"
-              value="24"
-              trend="+1.3%"
+              value={data.overview.activeTenancies.count.toLocaleString()}
+              trend={formatPercentChange(data.overview.activeTenancies.percentChange)}
               iconName="person.2"
               themeColor="green"
             />
@@ -104,14 +155,14 @@ export default function HomeScreen() {
 
           <View style={[styles.gridRow, { marginTop: 12 }]}>
             <OverviewCard
-              title="Occupancy Rate"
-              value="80%"
-              iconName="person.2"
+              title="Held Deposit"
+              value={formatCurrency(data.overview.heldDeposit.total, data.overview.heldDeposit.currency)}
+              iconName="wallet"
               themeColor="purple"
             />
             <OverviewCard
               title="Total Rental Income"
-              value="₦4,800,000"
+              value={formatCurrency(data.overview.totalRentalIncome.total, data.overview.totalRentalIncome.currency)}
               iconName="wallet"
               themeColor="cyan"
             />
@@ -133,6 +184,16 @@ export default function HomeScreen() {
         visible={isCreateTenancyVisible}
         onClose={() => setIsCreateTenancyVisible(false)}
       />
+
+      {/* Upload Signed Contract Modal Overlay */}
+      <UploadContractFlow
+        visible={isUploadVisible}
+        onClose={() => setIsUploadVisible(false)}
+        onComplete={() => {
+          setIsUploadVisible(false);
+          refetch();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -145,7 +206,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 20,
-    paddingBottom: 40,
+    paddingBottom: 120,
   },
   profileSection: {
     marginBottom: 24,
@@ -193,6 +254,10 @@ const styles = StyleSheet.create({
     height: '100%',
     opacity: 0.1,
   },
+  avatarImageFull: {
+    width: '100%',
+    height: '100%',
+  },
   avatarOverlay: {
     position: 'absolute',
     top: 0,
@@ -214,5 +279,49 @@ const styles = StyleSheet.create({
   gridRow: {
     flexDirection: 'row',
     gap: 12,
+  },
+  uploadNudgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8F0',
+    borderColor: '#FFE3C6',
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    gap: 12,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  uploadNudgeIconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#FFF3E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadNudgeTextContainer: {
+    flex: 1,
+    gap: 4,
+  },
+  uploadNudgeText: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 13,
+    color: '#1A1C1E',
+    lineHeight: 18,
+  },
+  boldText: {
+    fontFamily: 'Satoshi-Bold',
+    fontWeight: '700',
+  },
+  uploadNudgeLink: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 13,
+    color: '#D87C24',
+    fontWeight: '700',
   },
 });

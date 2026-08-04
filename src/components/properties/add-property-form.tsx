@@ -9,13 +9,17 @@ import {
   Image,
   Platform,
   ScrollView,
-  useWindowDimensions,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { AppBottomSheet } from '@/components/bottom-sheet';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { useToast } from '@/components/ui/toast';
+import { useAppDispatch } from '@/store/hooks';
+import { createProperty, fetchProperties, addLocalProperty } from '@/store/slices/property-slice';
+import { CreatePropertyPayload } from '@/types/property';
 
 export interface PropertyItem {
   id: string;
@@ -33,7 +37,11 @@ interface AddPropertyFormProps {
 }
 
 export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormProps) {
-  const { width } = useWindowDimensions();
+  // Wizard Step state: 1 = Property Details, 2 = Upload Land Documents
+  const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { showToast } = useToast();
+  const dispatch = useAppDispatch();
 
   // Form states
   const [formType, setFormType] = useState('Single Family Home');
@@ -61,20 +69,23 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
   // Uploaded images state
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
 
+  // Land document upload state
+  const [landDocument, setLandDocument] = useState<{ name: string; uri: string; size?: number } | null>(null);
+
   // Real image picking
   const handlePickImage = async () => {
     if (uploadedImages.length >= 2) {
-      Alert.alert('Limit Reached', 'You can upload up to 2 photos.');
+      showToast('You can upload up to 2 photos.', 'error');
       return;
     }
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
-      Alert.alert('Permission Required', 'Permission to access gallery is required to upload property images.');
+      showToast('Permission to access gallery is required to upload property images.', 'error');
       return;
     }
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: 'images',
         allowsEditing: true,
         quality: 0.8,
       });
@@ -82,43 +93,160 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setUploadedImages([...uploadedImages, result.assets[0].uri]);
       }
-    } catch (error) {
-      Alert.alert('Upload Error', 'An error occurred while picking the image.');
+    } catch {
+      showToast('An error occurred while picking the image.', 'error');
     }
   };
 
-  // Handle Proceed submission
-  const handleProceed = () => {
+  // Document picking logic (PDF, PNG, JPG)
+  const handlePickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/png', 'image/jpeg'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setLandDocument({
+          name: asset.name,
+          uri: asset.uri,
+          size: asset.size,
+        });
+      }
+    } catch {
+      showToast('An error occurred while picking the document.', 'error');
+    }
+  };
+
+  const formatBytes = (bytes: number, decimals = 0) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  // Step 1 Validation & Proceed
+  const handleProceedStep1 = () => {
     if (!formName.trim() || !formAddress.trim() || !formCity.trim() || !formState.trim()) {
-      Alert.alert('Required Fields', 'Please fill in all fields marked with an asterisk (*)');
+      showToast('Please fill in all fields marked with an asterisk (*)', 'error');
       return;
     }
 
     if (unitType === 'single') {
       if (!singleUnitName.trim()) {
-        Alert.alert('Required Field', 'Please enter a Unit Number or Name');
+        showToast('Please enter a Unit Number or Name', 'error');
         return;
       }
     } else {
       const emptyUnits = multipleUnits.some(u => !u.name.trim());
       if (emptyUnits) {
-        Alert.alert('Required Field', 'Please enter a Unit Number or Name for all units');
+        showToast('Please enter a Unit Number or Name for all units', 'error');
         return;
       }
     }
 
+    // Advance to Document Upload step
+    setStep(2);
+  };
+
+  // Step 2 Submission (Create Property)
+  const handleSubmit = async () => {
+    if (!landDocument) {
+      showToast('Please upload supporting land documents.', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const propertyTypeMap: Record<string, string> = {
+      'Single Family Home': 'residential',
+      'Apartment': 'residential',
+      'Duplex': 'residential',
+      'Commercial': 'commercial',
+      'Industrial': 'industrial',
+      'Land': 'land',
+      'Other': 'other',
+    };
+
+    const propertyAgeMap: Record<string, string> = {
+      'Below 1 year': 'below_1',
+      '1 - 3 years': '1_to_3',
+      '3 - 7 years': '3_to_7',
+      'Above 7 years': 'above_7',
+    };
+
+    const unitsPayload =
+      unitType === 'single'
+        ? [
+            {
+              unitIdentifier: singleUnitName.trim() || 'Unit 1',
+              bedrooms: singleUnitBedrooms,
+              bathrooms: singleUnitBathrooms,
+              isOccupied: false,
+              monthlyRent: 0,
+            },
+          ]
+        : multipleUnits.map((u) => ({
+            unitIdentifier: u.name.trim() || 'Unit',
+            bedrooms: u.bedrooms,
+            bathrooms: u.bathrooms,
+            isOccupied: false,
+            monthlyRent: 0,
+          }));
+
+    const payload: CreatePropertyPayload = {
+      propertyType: propertyTypeMap[formType] || 'other',
+      customPropertyType: formType,
+      propertyName: formName.trim(),
+      streetAddress: formAddress.trim(),
+      apartmentSuiteFloor: formUnit.trim() || undefined,
+      city: formCity.trim(),
+      state: formState.trim(),
+      propertyAge: propertyAgeMap[formAge] || 'above_7',
+      hasProofOfOwnership: true,
+      hasProofOfInsurance: false,
+      units: unitsPayload,
+      images: uploadedImages,
+    };
+
     const isMultiple = unitType === 'multiple';
-    const newProperty: PropertyItem = {
+    const localPropertyItem: PropertyItem = {
       id: 'property-' + Date.now(),
-      title: formName,
-      address: formAddress,
+      title: formName.trim(),
+      address: `${formAddress.trim()}, ${formCity.trim()}, ${formState.trim()}`,
       type: isMultiple ? 'multiple' : 'single',
       unitsCount: isMultiple ? multipleUnits.length : 1,
       occupiedCount: isMultiple ? Math.max(1, Math.floor(multipleUnits.length * 0.6)) : 1,
       hasImage: uploadedImages.length > 0,
     };
 
-    onProceed(newProperty);
+    try {
+      // 1. Dispatch createProperty thunk to API
+      await dispatch(createProperty(payload)).unwrap();
+      // 2. Refresh properties list from server
+      await dispatch(fetchProperties());
+      showToast('Property created successfully!', 'success');
+      setIsSubmitting(false);
+      onProceed(localPropertyItem);
+    } catch (err: any) {
+      if (__DEV__) {
+        console.warn('[AddPropertyForm] API creation failed:', err);
+      }
+      setIsSubmitting(false);
+      const errorMessage = typeof err === 'string' ? err : err?.message || 'Failed to create property on server.';
+      showToast(errorMessage, 'error');
+    }
+  };
+
+  const handleHeaderBack = () => {
+    if (step === 2) {
+      setStep(1);
+    } else {
+      onClose();
+    }
   };
 
   return (
@@ -127,7 +255,7 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={onClose}
+          onPress={handleHeaderBack}
           activeOpacity={0.7}
         >
           <SymbolView
@@ -140,300 +268,514 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
         <Text style={styles.headerTitle}>Add Property</Text>
       </View>
 
-      <ScrollView style={styles.body} showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollContent}>
-        {/* Section Title */}
-        <View style={styles.formTitleContainer}>
-          <Text style={styles.formMainTitle}>Property Details</Text>
-          <Text style={styles.formSubtitle}>Add the details of your property below</Text>
-        </View>
+      {step === 1 ? (
+        /* Step 1: Property Details Form */
+        <>
+          <ScrollView style={styles.body} showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollContent}>
+            <View style={styles.formTitleContainer}>
+              <Text style={styles.formMainTitle}>Property Details</Text>
+              <Text style={styles.formSubtitle}>Add the details of your property below</Text>
+            </View>
 
-        {/* Select Property Type */}
-        <View style={styles.formFieldContainer}>
-          <Text style={styles.fieldLabel}>Select Property Type <Text style={styles.asterisk}>*</Text></Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeSelectorRow}>
-            {[
-              { label: 'Townhome', icon: 'house.circle' },
-              { label: 'Single Family Home', icon: 'house.fill' },
-              { label: 'Apartment', icon: 'building.2.fill' },
-              { label: 'Duplex/Triplex', icon: 'building' },
-              { label: 'Others', icon: 'building.columns' },
-            ].map((item) => {
-              const isActive = formType === item.label;
-              return (
+            {/* Select Property Type */}
+            <View style={styles.formFieldContainer}>
+              <Text style={styles.fieldLabel}>Select Property Type <Text style={styles.asterisk}>*</Text></Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeSelectorRow}>
+                {[
+                  { label: 'Townhome', icon: 'house.circle' },
+                  { label: 'Single Family Home', icon: 'house.fill' },
+                  { label: 'Apartment', icon: 'building.2.fill' },
+                  { label: 'Duplex/Triplex', icon: 'building' },
+                  { label: 'Others', icon: 'building.columns' },
+                ].map((item) => {
+                  const isActive = formType === item.label;
+                  return (
+                    <TouchableOpacity
+                      key={item.label}
+                      style={[
+                        styles.typeCard,
+                        isActive ? styles.typeCardActive : styles.typeCardInactive,
+                      ]}
+                      onPress={() => setFormType(item.label)}
+                      activeOpacity={0.7}
+                    >
+                      <SymbolView
+                        name={{ ios: item.icon as any, android: 'home', web: 'home' }}
+                        size={20}
+                        tintColor={isActive ? '#D87C24' : '#8A8D93'}
+                        weight={isActive ? 'bold' : 'regular'}
+                      />
+                      <Text style={[styles.typeCardText, isActive ? styles.typeCardTextActive : styles.typeCardTextInactive]}>
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* Property Name */}
+            <View style={styles.formFieldContainer}>
+              <Text style={styles.fieldLabel}>Property Name <Text style={styles.asterisk}>*</Text></Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="Enter Property Name"
+                placeholderTextColor="#A0A5AB"
+                value={formName}
+                onChangeText={setFormName}
+              />
+            </View>
+
+            {/* Street Address */}
+            <View style={styles.formFieldContainer}>
+              <Text style={styles.fieldLabel}>Street Address <Text style={styles.asterisk}>*</Text></Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="Enter Property Address"
+                placeholderTextColor="#A0A5AB"
+                value={formAddress}
+                onChangeText={setFormAddress}
+              />
+            </View>
+
+            {/* Apartment Unit Suite */}
+            <View style={styles.formFieldContainer}>
+              <Text style={styles.fieldLabel}>Apartment, Unit Suite or Floor #</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="e.g Floor 1"
+                placeholderTextColor="#A0A5AB"
+                value={formUnit}
+                onChangeText={setFormUnit}
+              />
+            </View>
+
+            {/* Upload Image Section */}
+            <View style={styles.formFieldContainer}>
+              <Text style={styles.fieldLabelSecondary}>Upload property image <Text style={styles.smallText}>(Max. 2 photos)</Text></Text>
+              <View style={styles.uploadRow}>
+                {uploadedImages.map((uri, idx) => (
+                  <View key={idx} style={styles.uploadedPhotoContainer}>
+                    <Image
+                      source={{ uri: uri }}
+                      style={styles.uploadedPhoto}
+                    />
+                    <TouchableOpacity
+                      style={styles.deletePhotoBtn}
+                      onPress={() => {
+                        setUploadedImages(uploadedImages.filter((_, i) => i !== idx));
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <SymbolView
+                        name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
+                        size={18}
+                        tintColor="#EF4444"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                {uploadedImages.length < 2 && (
+                  <TouchableOpacity
+                    style={[
+                      styles.uploadBox,
+                      uploadedImages.length > 0 ? { flex: 1, height: 80 } : null
+                    ]}
+                    onPress={handlePickImage}
+                    activeOpacity={0.7}
+                  >
+                    <SymbolView
+                      name={{ ios: 'photo.badge.plus', android: 'add_photo_alternate', web: 'add_photo_alternate' }}
+                      size={18}
+                      tintColor="#D87C24"
+                      weight="semibold"
+                    />
+                    <Text style={styles.uploadBoxText}>Add image(s)</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {/* Age of Property */}
+            <View style={styles.formFieldContainer}>
+              <Text style={styles.fieldLabel}>Age of Property</Text>
+              <View style={styles.ageGrid}>
+                {[
+                  'Less than 2 years',
+                  'Less than 5 years',
+                  'Less than 7 years',
+                  'Above 7 years',
+                ].map((age) => {
+                  const isActive = formAge === age;
+                  return (
+                    <TouchableOpacity
+                      key={age}
+                      style={[
+                        styles.ageBtn,
+                        isActive ? styles.ageBtnActive : styles.ageBtnInactive,
+                      ]}
+                      onPress={() => setFormAge(age)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.ageBtnText, isActive ? styles.ageBtnTextActive : styles.ageBtnTextInactive]}>
+                        {age}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Location details */}
+            <View style={styles.locationRow}>
+              {/* City */}
+              <View style={styles.locationField}>
+                <Text style={styles.fieldLabel}>City <Text style={styles.asterisk}>*</Text></Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Enter City"
+                  placeholderTextColor="#A0A5AB"
+                  value={formCity}
+                  onChangeText={setFormCity}
+                />
+              </View>
+
+              {/* State */}
+              <View style={styles.locationField}>
+                <Text style={styles.fieldLabel}>State <Text style={styles.asterisk}>*</Text></Text>
                 <TouchableOpacity
-                  key={item.label}
-                  style={[
-                    styles.typeCard,
-                    isActive ? styles.typeCardActive : styles.typeCardInactive,
-                  ]}
-                  onPress={() => setFormType(item.label)}
+                  style={styles.dropdownTrigger}
+                  onPress={() => setIsStatePickerVisible(true)}
                   activeOpacity={0.7}
                 >
+                  <Text style={styles.dropdownText}>{formState}</Text>
                   <SymbolView
-                    name={{ ios: item.icon as any, android: 'home', web: 'home' }}
-                    size={20}
-                    tintColor={isActive ? '#D87C24' : '#8A8D93'}
-                    weight={isActive ? 'bold' : 'regular'}
+                    name={{ ios: 'chevron.down', android: 'arrow_drop_down', web: 'arrow_drop_down' }}
+                    size={16}
+                    tintColor="#8A8D93"
+                    weight="semibold"
                   />
-                  <Text style={[styles.typeCardText, isActive ? styles.typeCardTextActive : styles.typeCardTextInactive]}>
-                    {item.label}
-                  </Text>
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+              </View>
+            </View>
 
-        {/* Property Name */}
-        <View style={styles.formFieldContainer}>
-          <Text style={styles.fieldLabel}>Property Name <Text style={styles.asterisk}>*</Text></Text>
-          <TextInput
-            style={styles.formInput}
-            placeholder="Enter Property Name"
-            placeholderTextColor="#A0A5AB"
-            value={formName}
-            onChangeText={setFormName}
-          />
-        </View>
+            {/* Unit Type Selection Toggle */}
+            <SegmentedControl
+              values={['Single Unit', 'Multiple Units']}
+              selectedIndex={unitType === 'single' ? 0 : 1}
+              onChange={(index) => setUnitType(index === 0 ? 'single' : 'multiple')}
+              width="auto"
+              style={{ marginHorizontal: 24, marginBottom: 14 }}
+            />
 
-        {/* Street Address */}
-        <View style={styles.formFieldContainer}>
-          <Text style={styles.fieldLabel}>Street Address <Text style={styles.asterisk}>*</Text></Text>
-          <TextInput
-            style={styles.formInput}
-            placeholder="Enter Property Address"
-            placeholderTextColor="#A0A5AB"
-            value={formAddress}
-            onChangeText={setFormAddress}
-          />
-        </View>
+            {/* Optional helper text */}
+            <Text style={styles.optionalHelperText}>
+              The # beds, bathrooms and sizes are optional
+            </Text>
 
-        {/* Apartment Unit Suite */}
-        <View style={styles.formFieldContainer}>
-          <Text style={styles.fieldLabel}>Apartment, Unit Suite or Floor #</Text>
-          <TextInput
-            style={styles.formInput}
-            placeholder="e.g Floor 1"
-            placeholderTextColor="#A0A5AB"
-            value={formUnit}
-            onChangeText={setFormUnit}
-          />
-        </View>
+            {/* Single Unit Details Card */}
+            {unitType === 'single' && (
+              <View style={{ marginHorizontal: 24, marginBottom: 14 }}>
+                <View style={styles.unitCard}>
+                  <View style={styles.unitCardHeader}>
+                    <Text style={styles.fieldLabel}>Unit Number or Name <Text style={styles.asterisk}>*</Text></Text>
+                  </View>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="Enter Unit A"
+                    placeholderTextColor="#A0A5AB"
+                    value={singleUnitName}
+                    onChangeText={setSingleUnitName}
+                  />
 
-        {/* Upload Image Section */}
-        <View style={styles.formFieldContainer}>
-          <Text style={styles.fieldLabelSecondary}>Upload property image <Text style={styles.smallText}>(Max. 2 photos)</Text></Text>
-          <View style={styles.uploadRow}>
-            {uploadedImages.map((uri, idx) => (
-              <View key={idx} style={styles.uploadedPhotoContainer}>
-                <Image
-                  source={{ uri: uri }}
-                  style={styles.uploadedPhoto}
-                />
+                  {/* Bedroom Counter Row */}
+                  <View style={styles.counterRow}>
+                    <View style={styles.counterLabelContainer}>
+                      <SymbolView
+                        name={{ ios: 'bed.double.fill', android: 'king_bed', web: 'king_bed' }}
+                        size={16}
+                        tintColor="#8A8D93"
+                      />
+                      <Text style={styles.counterLabelText}># Bedroom</Text>
+                    </View>
+                    <View style={styles.counterControls}>
+                      <TouchableOpacity
+                        style={styles.counterBtnMinus}
+                        onPress={() => setSingleUnitBedrooms(Math.max(0, singleUnitBedrooms - 1))}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.counterBtnMinusText}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.counterVal}>{singleUnitBedrooms}</Text>
+                      <TouchableOpacity
+                        style={styles.counterBtnPlus}
+                        onPress={() => setSingleUnitBedrooms(singleUnitBedrooms + 1)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.counterBtnPlusText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Bathroom Counter Row */}
+                  <View style={styles.counterRow}>
+                    <View style={styles.counterLabelContainer}>
+                      <SymbolView
+                        name={{ ios: 'shower.fill', android: 'shower', web: 'shower' }}
+                        size={16}
+                        tintColor="#8A8D93"
+                      />
+                      <Text style={styles.counterLabelText}># Bathrooms</Text>
+                    </View>
+                    <View style={styles.counterControls}>
+                      <TouchableOpacity
+                        style={styles.counterBtnMinus}
+                        onPress={() => setSingleUnitBathrooms(Math.max(0, singleUnitBathrooms - 1))}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.counterBtnMinusText}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.counterVal}>{singleUnitBathrooms}</Text>
+                      <TouchableOpacity
+                        style={styles.counterBtnPlus}
+                        onPress={() => setSingleUnitBathrooms(singleUnitBathrooms + 1)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.counterBtnPlusText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Multiple Units Cards */}
+            {unitType === 'multiple' && (
+              <View style={{ marginHorizontal: 24, gap: 14, marginBottom: 14 }}>
+                {multipleUnits.map((unit, index) => (
+                  <View key={unit.id} style={styles.unitCard}>
+                    {/* Delete Unit Header */}
+                    <View style={styles.unitCardHeader}>
+                      <Text style={styles.fieldLabel}>Unit Number or Name <Text style={styles.asterisk}>*</Text></Text>
+                      <TouchableOpacity
+                        style={styles.trashBtn}
+                        onPress={() => {
+                          const newUnits = multipleUnits.filter(u => u.id !== unit.id);
+                          setMultipleUnits(newUnits);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <SymbolView
+                          name={{ ios: 'trash', android: 'delete', web: 'delete' }}
+                          size={18}
+                          tintColor="#EF4444"
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="(i.e) Unit A"
+                      placeholderTextColor="#A0A5AB"
+                      value={unit.name}
+                      onChangeText={(val) => {
+                        const newUnits = [...multipleUnits];
+                        newUnits[index] = { ...unit, name: val };
+                        setMultipleUnits(newUnits);
+                      }}
+                    />
+
+                    {/* Bedroom Counter Row */}
+                    <View style={styles.counterRow}>
+                      <View style={styles.counterLabelContainer}>
+                        <SymbolView
+                          name={{ ios: 'bed.double.fill', android: 'king_bed', web: 'king_bed' }}
+                          size={16}
+                          tintColor="#8A8D93"
+                        />
+                        <Text style={styles.counterLabelText}># Bedroom</Text>
+                      </View>
+                      <View style={styles.counterControls}>
+                        <TouchableOpacity
+                          style={styles.counterBtnMinus}
+                          onPress={() => {
+                            const newUnits = [...multipleUnits];
+                            newUnits[index] = { ...unit, bedrooms: Math.max(0, unit.bedrooms - 1) };
+                            setMultipleUnits(newUnits);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.counterBtnMinusText}>−</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.counterVal}>{unit.bedrooms}</Text>
+                        <TouchableOpacity
+                          style={styles.counterBtnPlus}
+                          onPress={() => {
+                            const newUnits = [...multipleUnits];
+                            newUnits[index] = { ...unit, bedrooms: unit.bedrooms + 1 };
+                            setMultipleUnits(newUnits);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.counterBtnPlusText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Bathroom Counter Row */}
+                    <View style={styles.counterRow}>
+                      <View style={styles.counterLabelContainer}>
+                        <SymbolView
+                          name={{ ios: 'shower.fill', android: 'shower', web: 'shower' }}
+                          size={16}
+                          tintColor="#8A8D93"
+                        />
+                        <Text style={styles.counterLabelText}># Bathrooms</Text>
+                      </View>
+                      <View style={styles.counterControls}>
+                        <TouchableOpacity
+                          style={styles.counterBtnMinus}
+                          onPress={() => {
+                            const newUnits = [...multipleUnits];
+                            newUnits[index] = { ...unit, bathrooms: Math.max(0, unit.bathrooms - 1) };
+                            setMultipleUnits(newUnits);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.counterBtnMinusText}>−</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.counterVal}>{unit.bathrooms}</Text>
+                        <TouchableOpacity
+                          style={styles.counterBtnPlus}
+                          onPress={() => {
+                            const newUnits = [...multipleUnits];
+                            newUnits[index] = { ...unit, bathrooms: unit.bathrooms + 1 };
+                            setMultipleUnits(newUnits);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.counterBtnPlusText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+
+                {/* Add another unit button link */}
                 <TouchableOpacity
-                  style={styles.deletePhotoBtn}
+                  style={styles.addUnitLinkBtn}
                   onPress={() => {
-                    setUploadedImages(uploadedImages.filter((_, i) => i !== idx));
+                    setMultipleUnits([
+                      ...multipleUnits,
+                      { id: 'unit-' + Date.now(), name: '', bedrooms: 1, bathrooms: 1 }
+                    ]);
                   }}
                   activeOpacity={0.7}
                 >
                   <SymbolView
-                    name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
-                    size={18}
-                    tintColor="#EF4444"
+                    name={{ ios: 'doc.badge.plus', android: 'note_add', web: 'note_add' }}
+                    size={16}
+                    tintColor="#D87C24"
                   />
+                  <Text style={styles.addUnitLinkBtnText}>Add another unit</Text>
                 </TouchableOpacity>
               </View>
-            ))}
-
-            {uploadedImages.length < 2 && (
-              <TouchableOpacity
-                style={[
-                  styles.uploadBox,
-                  uploadedImages.length > 0 ? { flex: 1, height: 80 } : null
-                ]}
-                onPress={handlePickImage}
-                activeOpacity={0.7}
-              >
-                <SymbolView
-                  name={{ ios: 'photo.badge.plus', android: 'add_photo_alternate', web: 'add_photo_alternate' }}
-                  size={18}
-                  tintColor="#D87C24"
-                  weight="semibold"
-                />
-                <Text style={styles.uploadBoxText}>Add image(s)</Text>
-              </TouchableOpacity>
             )}
-          </View>
-        </View>
+          </ScrollView>
 
-        {/* Age of Property */}
-        <View style={styles.formFieldContainer}>
-          <Text style={styles.fieldLabel}>Age of Property</Text>
-          <View style={styles.ageGrid}>
-            {[
-              'Less than 2 years',
-              'Less than 5 years',
-              'Less than 7 years',
-              'Above 7 years',
-            ].map((age) => {
-              const isActive = formAge === age;
-              return (
-                <TouchableOpacity
-                  key={age}
-                  style={[
-                    styles.ageBtn,
-                    isActive ? styles.ageBtnActive : styles.ageBtnInactive,
-                  ]}
-                  onPress={() => setFormAge(age)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.ageBtnText, isActive ? styles.ageBtnTextActive : styles.ageBtnTextInactive]}>
-                    {age}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Location details */}
-        <View style={styles.locationRow}>
-          {/* City */}
-          <View style={styles.locationField}>
-            <Text style={styles.fieldLabel}>City <Text style={styles.asterisk}>*</Text></Text>
-            <TextInput
-              style={styles.formInput}
-              placeholder="Enter City"
-              placeholderTextColor="#A0A5AB"
-              value={formCity}
-              onChangeText={setFormCity}
-            />
-          </View>
-
-          {/* State */}
-          <View style={styles.locationField}>
-            <Text style={styles.fieldLabel}>State <Text style={styles.asterisk}>*</Text></Text>
+          {/* Bottom Actions Bar */}
+          <View style={styles.formBottomBar}>
             <TouchableOpacity
-              style={styles.dropdownTrigger}
-              onPress={() => setIsStatePickerVisible(true)}
+              style={styles.formBackBtn}
+              onPress={onClose}
               activeOpacity={0.7}
             >
-              <Text style={styles.dropdownText}>{formState}</Text>
               <SymbolView
-                name={{ ios: 'chevron.down', android: 'arrow_drop_down', web: 'arrow_drop_down' }}
-                size={16}
-                tintColor="#8A8D93"
-                weight="semibold"
+                name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                size={18}
+                tintColor="#1A1C1E"
+                weight="bold"
               />
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.formProceedBtn}
+              onPress={handleProceedStep1}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.formProceedBtnText}>Proceed</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Unit Type Selection Toggle */}
-        <SegmentedControl
-          values={['Single Unit', 'Multiple Units']}
-          selectedIndex={unitType === 'single' ? 0 : 1}
-          onChange={(index) => setUnitType(index === 0 ? 'single' : 'multiple')}
-          width="auto"
-          style={{ marginHorizontal: 24, marginBottom: 14 }}
-        />
-
-        {/* Optional helper text */}
-        <Text style={styles.optionalHelperText}>
-          The # beds, bathrooms and sizes are optional
-        </Text>
-
-        {/* Single Unit Details Card */}
-        {unitType === 'single' && (
-          <View style={{ marginHorizontal: 24, marginBottom: 14 }}>
-            <View style={styles.unitCard}>
-              <View style={styles.unitCardHeader}>
-                <Text style={styles.fieldLabel}>Unit Number or Name <Text style={styles.asterisk}>*</Text></Text>
-              </View>
-              <TextInput
-                style={styles.formInput}
-                placeholder="Enter Unit A"
-                placeholderTextColor="#A0A5AB"
-                value={singleUnitName}
-                onChangeText={setSingleUnitName}
-              />
-
-              {/* Bedroom Counter Row */}
-              <View style={styles.counterRow}>
-                <View style={styles.counterLabelContainer}>
-                  <SymbolView
-                    name={{ ios: 'bed.double.fill', android: 'king_bed', web: 'king_bed' }}
-                    size={16}
-                    tintColor="#8A8D93"
-                  />
-                  <Text style={styles.counterLabelText}># Bedroom</Text>
-                </View>
-                <View style={styles.counterControls}>
-                  <TouchableOpacity
-                    style={styles.counterBtnMinus}
-                    onPress={() => setSingleUnitBedrooms(Math.max(0, singleUnitBedrooms - 1))}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.counterBtnMinusText}>−</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.counterVal}>{singleUnitBedrooms}</Text>
-                  <TouchableOpacity
-                    style={styles.counterBtnPlus}
-                    onPress={() => setSingleUnitBedrooms(singleUnitBedrooms + 1)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.counterBtnPlusText}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Bathroom Counter Row */}
-              <View style={styles.counterRow}>
-                <View style={styles.counterLabelContainer}>
-                  <SymbolView
-                    name={{ ios: 'shower.fill', android: 'shower', web: 'shower' }}
-                    size={16}
-                    tintColor="#8A8D93"
-                  />
-                  <Text style={styles.counterLabelText}># Bathrooms</Text>
-                </View>
-                <View style={styles.counterControls}>
-                  <TouchableOpacity
-                    style={styles.counterBtnMinus}
-                    onPress={() => setSingleUnitBathrooms(Math.max(0, singleUnitBathrooms - 1))}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.counterBtnMinusText}>−</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.counterVal}>{singleUnitBathrooms}</Text>
-                  <TouchableOpacity
-                    style={styles.counterBtnPlus}
-                    onPress={() => setSingleUnitBathrooms(singleUnitBathrooms + 1)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.counterBtnPlusText}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+        </>
+      ) : (
+        /* Step 2: Upload Land Documents Screen */
+        <>
+          <ScrollView style={styles.body} showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollContent}>
+            <View style={styles.formTitleContainer}>
+              <Text style={styles.formMainTitle}>Upload Land Documents</Text>
+              <Text style={styles.formSubtitle}>Upload supporting documents</Text>
             </View>
-          </View>
-        )}
 
-        {/* Multiple Units Cards */}
-        {unitType === 'multiple' && (
-          <View style={{ marginHorizontal: 24, gap: 14, marginBottom: 14 }}>
-            {multipleUnits.map((unit, index) => (
-              <View key={unit.id} style={styles.unitCard}>
-                {/* Delete Unit Header */}
-                <View style={styles.unitCardHeader}>
-                  <Text style={styles.fieldLabel}>Unit Number or Name <Text style={styles.asterisk}>*</Text></Text>
+            {/* Dashed Drop Zone */}
+            <TouchableOpacity
+              style={styles.dottedUploadZone}
+              onPress={handlePickDocument}
+              activeOpacity={0.8}
+            >
+              <View style={styles.folderIllustrationContainer}>
+                <View style={styles.folderIllustration}>
+                  {/* CSS Folder graphic matching the mockup */}
+                  <View style={styles.folderBack} />
+                  <View style={styles.folderPaper} />
+                  <View style={styles.folderFront} />
+                  <Text style={styles.plusSymbolTop}>+</Text>
+                  <Text style={styles.plusSymbolBottom}>+</Text>
+                </View>
+              </View>
+              <Text style={styles.clickToBrowseText}>Click to browse</Text>
+              <Text style={styles.supportFormatText}>Support PDF, PNG or JPG (Max. 5MB)</Text>
+            </TouchableOpacity>
+
+            {/* Info Warning Card */}
+            <View style={styles.infoBanner}>
+              <SymbolView
+                name={{ ios: 'exclamationmark.circle', android: 'error_outline', web: 'error_outline' }}
+                size={16}
+                tintColor="#D87C24"
+              />
+              <Text style={styles.infoBannerText}>
+                Please ensure all pages of the document are clearly visible and the signatures are legible before uploading.
+              </Text>
+            </View>
+
+            {/* Uploaded Document details */}
+            {landDocument && (
+              <View style={styles.uploadedDocSection}>
+                <Text style={styles.uploadedDocHeader}>Uploaded Document</Text>
+                <View style={styles.docCard}>
+                  <View style={styles.docCardLeft}>
+                    <View style={styles.docIconBg}>
+                      <SymbolView
+                        name={{ ios: 'doc.text.fill', android: 'article', web: 'article' }}
+                        size={20}
+                        tintColor="#D87C24"
+                      />
+                    </View>
+                    <View style={styles.docDetails}>
+                      <Text style={styles.docName} numberOfLines={1}>
+                        {landDocument.name}
+                      </Text>
+                      {landDocument.size && (
+                        <Text style={styles.docSize}>
+                          {formatBytes(landDocument.size)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
                   <TouchableOpacity
-                    style={styles.trashBtn}
-                    onPress={() => {
-                      const newUnits = multipleUnits.filter(u => u.id !== unit.id);
-                      setMultipleUnits(newUnits);
-                    }}
+                    style={styles.docDeleteBtn}
+                    onPress={() => setLandDocument(null)}
                     activeOpacity={0.7}
                   >
                     <SymbolView
@@ -443,140 +785,55 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
                     />
                   </TouchableOpacity>
                 </View>
-
-                <TextInput
-                  style={styles.formInput}
-                  placeholder="(i.e) Unit A"
-                  placeholderTextColor="#A0A5AB"
-                  value={unit.name}
-                  onChangeText={(val) => {
-                    const newUnits = [...multipleUnits];
-                    newUnits[index] = { ...unit, name: val };
-                    setMultipleUnits(newUnits);
-                  }}
-                />
-
-                {/* Bedroom Counter Row */}
-                <View style={styles.counterRow}>
-                  <View style={styles.counterLabelContainer}>
-                    <SymbolView
-                      name={{ ios: 'bed.double.fill', android: 'king_bed', web: 'king_bed' }}
-                      size={16}
-                      tintColor="#8A8D93"
-                    />
-                    <Text style={styles.counterLabelText}># Bedroom</Text>
-                  </View>
-                  <View style={styles.counterControls}>
-                    <TouchableOpacity
-                      style={styles.counterBtnMinus}
-                      onPress={() => {
-                        const newUnits = [...multipleUnits];
-                        newUnits[index] = { ...unit, bedrooms: Math.max(0, unit.bedrooms - 1) };
-                        setMultipleUnits(newUnits);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.counterBtnMinusText}>−</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.counterVal}>{unit.bedrooms}</Text>
-                    <TouchableOpacity
-                      style={styles.counterBtnPlus}
-                      onPress={() => {
-                        const newUnits = [...multipleUnits];
-                        newUnits[index] = { ...unit, bedrooms: unit.bedrooms + 1 };
-                        setMultipleUnits(newUnits);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.counterBtnPlusText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Bathroom Counter Row */}
-                <View style={styles.counterRow}>
-                  <View style={styles.counterLabelContainer}>
-                    <SymbolView
-                      name={{ ios: 'shower.fill', android: 'shower', web: 'shower' }}
-                      size={16}
-                      tintColor="#8A8D93"
-                    />
-                    <Text style={styles.counterLabelText}># Bathrooms</Text>
-                  </View>
-                  <View style={styles.counterControls}>
-                    <TouchableOpacity
-                      style={styles.counterBtnMinus}
-                      onPress={() => {
-                        const newUnits = [...multipleUnits];
-                        newUnits[index] = { ...unit, bathrooms: Math.max(0, unit.bathrooms - 1) };
-                        setMultipleUnits(newUnits);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.counterBtnMinusText}>−</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.counterVal}>{unit.bathrooms}</Text>
-                    <TouchableOpacity
-                      style={styles.counterBtnPlus}
-                      onPress={() => {
-                        const newUnits = [...multipleUnits];
-                        newUnits[index] = { ...unit, bathrooms: unit.bathrooms + 1 };
-                        setMultipleUnits(newUnits);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.counterBtnPlusText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
               </View>
-            ))}
+            )}
+          </ScrollView>
 
-            {/* Add another unit button link */}
+          {/* Bottom Actions Bar */}
+          <View style={styles.formBottomBar}>
             <TouchableOpacity
-              style={styles.addUnitLinkBtn}
-              onPress={() => {
-                setMultipleUnits([
-                  ...multipleUnits,
-                  { id: 'unit-' + Date.now(), name: '', bedrooms: 1, bathrooms: 1 }
-                ]);
-              }}
+              style={styles.formBackBtn}
+              onPress={() => setStep(1)}
               activeOpacity={0.7}
             >
               <SymbolView
-                name={{ ios: 'doc.badge.plus', android: 'note_add', web: 'note_add' }}
-                size={16}
-                tintColor="#D87C24"
+                name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                size={18}
+                tintColor="#1A1C1E"
+                weight="bold"
               />
-              <Text style={styles.addUnitLinkBtnText}>Add another unit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.formSubmitBtn,
+                (!landDocument || isSubmitting) && styles.formSubmitBtnDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={!landDocument || isSubmitting}
+              activeOpacity={0.8}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <SymbolView
+                    name={{ ios: 'arrow.up.doc.fill', android: 'publish', web: 'publish' }}
+                    size={16}
+                    tintColor={landDocument ? '#FFFFFF' : '#8A8D93'}
+                  />
+                  <Text style={[
+                    styles.formSubmitBtnText,
+                    !landDocument && styles.formSubmitBtnTextDisabled,
+                  ]}>
+                    Submit Property
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
-        )}
-      </ScrollView>
-
-      {/* Bottom Actions Bar */}
-      <View style={styles.formBottomBar}>
-        <TouchableOpacity
-          style={styles.formBackBtn}
-          onPress={onClose}
-          activeOpacity={0.7}
-        >
-          <SymbolView
-            name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
-            size={18}
-            tintColor="#1A1C1E"
-            weight="bold"
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.formProceedBtn}
-          onPress={handleProceed}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.formProceedBtnText}>Proceed</Text>
-        </TouchableOpacity>
-      </View>
+        </>
+      )}
 
       {/* State Picker Bottom Sheet */}
       <AppBottomSheet
@@ -709,6 +966,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 12,
   },
+  typeCardActiveText: {
+    color: '#D87C24',
+  },
+  typeCardInactiveText: {
+    color: '#8A8D93',
+  },
   typeCardTextActive: {
     color: '#D87C24',
   },
@@ -839,7 +1102,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Satoshi-Bold',
     fontSize: 15,
     fontWeight: '700',
-    color: '#1A1C1E',
+    color: '#FFFFFF',
   },
   optionalHelperText: {
     fontFamily: 'Satoshi-Regular',
@@ -971,5 +1234,198 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 1.5,
     elevation: 2,
+  },
+
+  // Step 2 Upload Documents Screen Styling
+  dottedUploadZone: {
+    marginHorizontal: 24,
+    marginTop: 10,
+    height: 220,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#FFA726',
+    borderStyle: 'dashed',
+    backgroundColor: '#FFFDF9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  folderIllustrationContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#FFF5EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  folderIllustration: {
+    position: 'relative',
+    width: 72,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  folderBack: {
+    position: 'absolute',
+    bottom: 0,
+    left: 4,
+    width: 64,
+    height: 48,
+    backgroundColor: '#B57428',
+    borderRadius: 6,
+  },
+  folderPaper: {
+    position: 'absolute',
+    bottom: 8,
+    left: 12,
+    width: 48,
+    height: 48,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#FFE3C6',
+  },
+  folderFront: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 72,
+    height: 40,
+    backgroundColor: '#D87C24',
+    borderRadius: 6,
+    transform: [{ skewX: '-10deg' }],
+  },
+  plusSymbolTop: {
+    position: 'absolute',
+    top: -12,
+    right: 2,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#B57428',
+  },
+  plusSymbolBottom: {
+    position: 'absolute',
+    bottom: -6,
+    right: -8,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#B57428',
+  },
+  clickToBrowseText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A1C1E',
+    marginBottom: 6,
+  },
+  supportFormatText: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 13,
+    color: '#8A8D93',
+  },
+  infoBanner: {
+    flexDirection: 'row',
+    backgroundColor: '#FFF5EC',
+    borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 24,
+    marginTop: 20,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  infoBannerText: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 12,
+    color: '#8A8D93',
+    flex: 1,
+    lineHeight: 18,
+  },
+  uploadedDocSection: {
+    marginHorizontal: 24,
+    marginTop: 24,
+  },
+  uploadedDocHeader: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1C1E',
+    marginBottom: 10,
+  },
+  docCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderColor: '#FFE3C6',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  docCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  docIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#FFF5EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  docDetails: {
+    gap: 4,
+    flex: 1,
+  },
+  docName: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 14,
+    color: '#1A1C1E',
+  },
+  docSize: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 12,
+    color: '#8A8D93',
+  },
+  docDeleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    borderColor: '#FEE4E2',
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FEF3F2',
+  },
+  formSubmitBtn: {
+    flex: 1,
+    height: 48,
+    backgroundColor: '#FFA726',
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#FFA726',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  formSubmitBtnDisabled: {
+    backgroundColor: '#FFE0B2',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  formSubmitBtnText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  formSubmitBtnTextDisabled: {
+    color: '#8A8D93',
   },
 });

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SwipeButton } from '../swipe-button';
+import { TouchableOpacity } from 'react-native';
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -113,7 +114,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         ))}
       </ScrollView>
 
-      {/* Fixed Header (Logo & Skip) */}
+      {/* Fixed Header */}
       <SafeAreaView style={styles.header} pointerEvents="box-none">
         <View style={styles.headerRow}>
           <View style={styles.logoContainer}>
@@ -124,7 +125,6 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             />
             <Text style={styles.logoText}>BUILDSURE</Text>
           </View>
-
         </View>
       </SafeAreaView>
 
@@ -217,6 +217,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
     letterSpacing: 1,
+  },
+  headerSignInButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  headerSignInText: {
+    fontFamily: 'Satoshi-Bold',
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   textSection: {

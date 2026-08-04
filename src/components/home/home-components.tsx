@@ -16,10 +16,11 @@ const chartPoints = [
 
 interface BrandHeaderProps {
   onNotificationPress?: () => void;
+  notificationCount?: number;
 }
 
 // 1. Header component
-export function BrandHeader({ onNotificationPress }: BrandHeaderProps) {
+export function BrandHeader({ onNotificationPress, notificationCount = 0 }: BrandHeaderProps) {
   return (
     <View style={styles.header}>
       <View style={styles.logoContainer}>
@@ -40,9 +41,11 @@ export function BrandHeader({ onNotificationPress }: BrandHeaderProps) {
           size={24}
           tintColor="#1A1C1E"
         />
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>6</Text>
-        </View>
+        {notificationCount > 0 && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{notificationCount}</Text>
+          </View>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -50,11 +53,15 @@ export function BrandHeader({ onNotificationPress }: BrandHeaderProps) {
 
 // 1b. Notification Nudge component
 interface NotificationNudgeProps {
+  message?: string;
+  timeAgo?: string;
   onClose: () => void;
   onNotificationPress?: () => void;
 }
 
-export function NotificationNudge({ onClose, onNotificationPress }: NotificationNudgeProps) {
+export function NotificationNudge({ message, timeAgo, onClose, onNotificationPress }: NotificationNudgeProps) {
+  if (!message) return null;
+
   return (
     <TouchableOpacity 
       style={styles.nudgeContainer} 
@@ -67,12 +74,8 @@ export function NotificationNudge({ onClose, onNotificationPress }: Notification
         resizeMode="cover"
       />
       <View style={styles.nudgeTextContainer}>
-        <Text style={styles.nudgeText}>
-          Hooray! The balance of your property{' '}
-          <Text style={styles.boldOrange}>Apo-Wumba Homes</Text> has rised by{' '}
-          <Text style={styles.boldOrange}>2.5%</Text>.
-        </Text>
-        <Text style={styles.nudgeTime}>10m ago</Text>
+        <Text style={styles.nudgeText}>{message}</Text>
+        {timeAgo && <Text style={styles.nudgeTime}>{timeAgo}</Text>}
       </View>
       <TouchableOpacity 
         onPress={(e) => {
@@ -93,13 +96,28 @@ export function NotificationNudge({ onClose, onNotificationPress }: Notification
   );
 }
 
-// 2. Portfolio value card component
 interface PortfolioCardProps {
   value: string;
   trend: string;
+  currency?: string;
+  chartData?: { month: string; value: number }[];
 }
 
-export function PortfolioCard({ value, trend }: PortfolioCardProps) {
+export function PortfolioCard({ value, trend, currency = 'NGN', chartData }: PortfolioCardProps) {
+  const currencySymbol = currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency;
+
+  // Calculate dynamic bar heights if chartData is provided
+  const points = React.useMemo(() => {
+    if (!chartData || chartData.length === 0) return [];
+    const values = chartData.map((d) => d.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    
+    // Scale values between 18 and 52 for sparkline chart
+    return values.map((val) => 18 + ((val - min) / range) * 34);
+  }, [chartData]);
+
   return (
     <View style={styles.portfolioCard}>
       <View style={styles.portfolioHeader}>
@@ -111,7 +129,7 @@ export function PortfolioCard({ value, trend }: PortfolioCardProps) {
             tintColor="#6C757D"
           />
         </View>
-        <Text style={styles.nairaSymbol}>₦</Text>
+        <Text style={styles.nairaSymbol}>{currencySymbol}</Text>
       </View>
 
       <Text style={styles.amountText}>{value}</Text>
@@ -129,27 +147,34 @@ export function PortfolioCard({ value, trend }: PortfolioCardProps) {
       </View>
 
       {/* Sparkline chart columns */}
-      <View style={styles.chartContainer}>
-        {chartPoints.map((val, idx) => (
-          <View key={idx} style={styles.chartCol}>
-            <View style={[styles.chartBar, { height: val }]} />
-            <View style={styles.chartLineDot} />
-          </View>
-        ))}
-      </View>
+      {points.length > 0 && (
+        <View style={styles.chartContainer}>
+          {points.map((val, idx) => (
+            <View key={idx} style={styles.chartCol}>
+              <View style={[styles.chartBar, { height: val }]} />
+              <View style={styles.chartLineDot} />
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
 interface ActionRowProps {
   onCreateTenancyPress?: () => void;
+  onAddPropertyPress?: () => void;
 }
 
 // 3. Action buttons component
-export function ActionRow({ onCreateTenancyPress }: ActionRowProps) {
+export function ActionRow({ onCreateTenancyPress, onAddPropertyPress }: ActionRowProps) {
   return (
     <View style={styles.actionRow}>
-      <TouchableOpacity style={styles.addPropertyButton} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={styles.addPropertyButton}
+        activeOpacity={0.8}
+        onPress={onAddPropertyPress}
+      >
         <SymbolView
           name={{ ios: 'house.fill', android: 'home', web: 'home' }}
           size={18}

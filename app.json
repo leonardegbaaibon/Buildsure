@@ -8,8 +8,9 @@
     "scheme": "buildsure",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.realcod3r.buildsure"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "com.bayecapital.buildsure",
+      "appleTeamId": "FGKBSXY88T"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +20,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.realcod3r.buildsure"
+      "package": "com.bayecapital.buildsure"
     },
     "web": {
       "output": "static",
@@ -37,7 +38,13 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload property and agreement images."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
