@@ -19,6 +19,9 @@ import { SymbolView } from 'expo-symbols';
 import { AppBottomSheet } from '@/components/bottom-sheet';
 import * as DocumentPicker from 'expo-document-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchProperties, fetchPropertyById } from '@/store/slices/property-slice';
+import { useValidation } from '@/hooks/use-validation';
 import {
   getProperties,
   subscribeProperties,
@@ -36,7 +39,7 @@ interface PropertyOption {
   id: string;
   title: string;
   address: string;
-  image: any;
+  imageUrl?: string | null;
 }
 
 interface UnitOption {
@@ -51,99 +54,16 @@ interface UploadedFile {
   size: string;
 }
 
-const mockProperties: PropertyOption[] = [
-  {
-    id: 'p-1',
-    title: 'Apo Wumba Homes',
-    address: 'Plot 432, Apo Wumba District, Abuja, FCT',
-    image: require('../../../assets/images/apo_wumba.png'),
-  },
-  {
-    id: 'p-2',
-    title: 'Wuse II Apartments',
-    address: '12 Aminu Kano Cres, Wuse, Abuja, FCT',
-    image: require('../../../assets/images/onboarding_1.png'),
-  },
-  {
-    id: 'p-3',
-    title: 'Maitama Heights',
-    address: '5 Maitama Avenue, Maitama, Abuja, FCT',
-    image: require('../../../assets/images/onboarding_3.png'),
-  },
-];
-
-const mockUnits: UnitOption[] = [
-  { id: 'A1', status: 'occupied' },
-  { id: 'A2', status: 'occupied' },
-  { id: 'A3', status: 'occupied' },
-  { id: 'A4', status: 'occupied' },
-  { id: 'B1', status: 'vacant' },
-  { id: 'B2', status: 'vacant' },
-  { id: 'B3', status: 'occupied' },
-  { id: 'B4', status: 'occupied' },
-  { id: 'B5', status: 'occupied' },
-  { id: 'B6', status: 'occupied' },
-  { id: 'C1', status: 'vacant' },
-  { id: 'C2', status: 'occupied' },
-  { id: 'C3', status: 'occupied' },
-  { id: 'C4', status: 'vacant' },
-  { id: 'C5', status: 'occupied' },
-];
-
 export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlowProps) {
   const { width } = useWindowDimensions();
+  const dispatch = useAppDispatch();
+  const reduxProperties = useAppSelector((state) => state.properties.properties);
+  const { emailError, phoneError, validateEmail, validatePhone } = useValidation();
 
   // Wizard flow states
   const [tenancyType, setTenancyType] = useState<'new' | 'existing'>('new');
   const [wizardStep, setWizardStep] = useState<number>(0); 
 
-  // Shared properties state loaded dynamically
-  const [properties, setProperties] = useState<PropertyOption[]>([]);
-
-  useEffect(() => {
-    const updateList = (list: PropertyItem[]) => {
-      setProperties(list.map(p => ({
-        id: p.id,
-        title: p.title,
-        address: p.address,
-        image: p.hasImage 
-          ? require('../../../assets/images/apo_wumba.png') 
-          : require('../../../assets/images/onboarding_1.png')
-      })));
-    };
-    updateList(getProperties());
-    const unsubscribe = subscribeProperties(updateList);
-    return unsubscribe;
-  }, []);
-
-  // Step sequence mapping:
-  const steps = useMemo(() => {
-    if (tenancyType === 'new') {
-      return ['type', 'property', 'resident', 'rent', 'confirm', 'sign'];
-    } else {
-      return ['type', 'property', 'uploads', 'resident', 'rent', 'confirm'];
-    }
-  }, [tenancyType]);
-
-  // Progress bar smooth animation
-  const progressAnim = useMemo(() => new Animated.Value(0.2), []);
-
-  useEffect(() => {
-    if (wizardStep >= 1 && wizardStep <= 5) {
-      Animated.timing(progressAnim, {
-        toValue: wizardStep * 0.2,
-        duration: 300,
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [wizardStep, progressAnim]);
-
-  const progressBarWidth = progressAnim.interpolate({
-    inputRange: [0.2, 1.0],
-    outputRange: ['20%', '100%'],
-    extrapolate: 'clamp',
-  });
-  
   // Page 1 states
   const [selectedProperty, setSelectedProperty] = useState<PropertyOption | null>(null);
   const [isPropertySheetVisible, setIsPropertySheetVisible] = useState(false);
@@ -165,14 +85,126 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
   const [showCustomFees, setShowCustomFees] = useState(false);
   const [customFeeName, setCustomFeeName] = useState('');
   const [customFeeAmount, setCustomFeeAmount] = useState('');
-  const [rentDuration, setRentDuration] = useState(0);
+  const [customFeeDueDate, setCustomFeeDueDate] = useState('');
+  const [isFeeSheetVisible, setIsFeeSheetVisible] = useState(false);
+  const [rentDuration, setRentDuration] = useState(1);
   const [rentStartDate, setRentStartDate] = useState('');
   const [rentEndDate, setRentEndDate] = useState('');
   const [rentDueDate, setRentDueDate] = useState('');
   const [showLateFee, setShowLateFee] = useState(false);
   const [lateFeeAmount, setLateFeeAmount] = useState('');
 
-  // Page 4 states
+  // Toast banner for recorded tenancy
+  const [showToastBanner, setShowToastBanner] = useState(false);
+
+  useEffect(() => {
+    if (showToastBanner) {
+      const timer = setTimeout(() => {
+        setShowToastBanner(false);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showToastBanner]);
+
+  useEffect(() => {
+    if (visible) {
+      setWizardStep(0);
+      dispatch(fetchProperties());
+    }
+  }, [visible, dispatch]);
+
+  // Shared properties state loaded dynamically
+  const [localProperties, setLocalProperties] = useState<PropertyItem[]>([]);
+
+  useEffect(() => {
+    setLocalProperties(getProperties());
+    const unsubscribe = subscribeProperties((list) => setLocalProperties(list));
+    return unsubscribe;
+  }, []);
+
+  const properties: PropertyOption[] = useMemo(() => {
+    const list: PropertyOption[] = [];
+
+    if (reduxProperties && reduxProperties.length > 0) {
+      reduxProperties.forEach((p: any) => {
+        const title = p.propertyName || p.title || 'Untitled Property';
+        const address = p.streetAddress
+          ? `${p.streetAddress}${p.city ? `, ${p.city}` : ''}${p.state ? `, ${p.state}` : ''}`
+          : (p.address || 'Abuja, FCT');
+        const imageUrl = p.coverImage || (p.images && p.images[0]?.imageUrl) || p.imageUrl || null;
+
+        list.push({
+          id: p.id,
+          title,
+          address,
+          imageUrl,
+        });
+      });
+    }
+
+    localProperties.forEach((lp: any) => {
+      if (!list.some((item) => item.id === lp.id)) {
+        list.push({
+          id: lp.id,
+          title: lp.title,
+          address: lp.address,
+          imageUrl: lp.imageUrl || null,
+        });
+      }
+    });
+
+    return list;
+  }, [reduxProperties, localProperties]);
+
+  // Determine if rent start date is in the past (Existing Tenancy)
+  const isExistingTenancy = useMemo(() => {
+    if (!rentStartDate) return tenancyType === 'existing';
+    const parts = rentStartDate.split('/');
+    if (parts.length !== 3) return false;
+    const d = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return d < today;
+  }, [rentStartDate, tenancyType]);
+
+  // Step sequence mapping
+  const steps = useMemo(() => {
+    if (isExistingTenancy) {
+      return ['property', 'resident', 'rent', 'uploads', 'pay', 'confirm'];
+    }
+    return ['property', 'resident', 'rent', 'pay', 'confirm', 'sign'];
+  }, [isExistingTenancy]);
+
+  const totalPagesForFlow = useMemo(() => {
+    return isExistingTenancy ? 5 : 6;
+  }, [isExistingTenancy]);
+
+  const currentPageNumber = useMemo(() => {
+    return wizardStep + 1;
+  }, [wizardStep]);
+
+  // Progress bar smooth animation
+  const progressAnim = useMemo(() => new Animated.Value(0.33), []);
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: currentPageNumber / 3,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  }, [currentPageNumber, progressAnim]);
+
+  const progressBarWidth = progressAnim.interpolate({
+    inputRange: [0.33, 1.0],
+    outputRange: ['33%', '100%'],
+    extrapolate: 'clamp',
+  });
+  
+
+
+  // Page 2 states (Tenant Profile)
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [residentName, setResidentName] = useState('');
   const [residentEmail, setResidentEmail] = useState('');
   const [residentPhone, setResidentPhone] = useState('');
@@ -239,12 +271,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
   const handleProceed = () => {
     const currentStep = steps[wizardStep];
 
-    if (currentStep === 'type') {
-      setWizardStep(1);
-      if (!selectedProperty) {
-        setSelectedProperty(mockProperties[0]);
-      }
-    } else if (currentStep === 'property') {
+    if (currentStep === 'property') {
       if (!selectedProperty) {
         Alert.alert('Required Field', 'Please select a property.');
         return;
@@ -253,20 +280,29 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         Alert.alert('Required Field', 'Please select a vacant unit.');
         return;
       }
-      // For 'new' flow, next is 'resident' (index 2). For 'existing', next is 'uploads' (index 2).
-      setWizardStep(2);
+      setWizardStep(1);
     } else if (currentStep === 'uploads') {
       if (uploadedFiles.length === 0) {
         Alert.alert('Required Field', 'Please upload at least one tenancy document.');
         return;
       }
-      setWizardStep(3);
+      setWizardStep(2);
     } else if (currentStep === 'resident') {
-      if (!residentName) {
-        Alert.alert('Required Field', 'Please enter resident name.');
+      if (!firstName.trim()) {
+        Alert.alert('Required Field', 'Please enter first name.');
         return;
       }
-      setWizardStep(wizardStep + 1);
+      if (!lastName.trim()) {
+        Alert.alert('Required Field', 'Please enter last name.');
+        return;
+      }
+      const isEmailValid = validateEmail(residentEmail, true);
+      const isPhoneValid = validatePhone(residentPhone, true);
+
+      if (!isEmailValid || !isPhoneValid) {
+        return;
+      }
+      setWizardStep(2);
     } else if (currentStep === 'rent') {
       if (!rentAmount) {
         Alert.alert('Required Field', 'Please enter a rent amount.');
@@ -276,16 +312,35 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         Alert.alert('Required Field', 'Please fill in all dates.');
         return;
       }
-      setWizardStep(wizardStep + 1);
-    } else if (currentStep === 'confirm') {
-      if (tenancyType === 'new') {
-        setWizardStep(5); // Go to signature (sign) screen
+      if (isExistingTenancy) {
+        setTenancyType('existing');
+        setWizardStep(steps.indexOf('uploads'));
       } else {
+        setTenancyType('new');
+        setWizardStep(steps.indexOf('pay'));
+      }
+    } else if (currentStep === 'uploads') {
+      if (uploadedFiles.length === 0) {
+        Alert.alert('Required Field', 'Please upload at least one tenancy document.');
+        return;
+      }
+      setWizardStep(steps.indexOf('pay'));
+    } else if (currentStep === 'pay') {
+      setIsSubmitting(true);
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setWizardStep(steps.indexOf('confirm'));
+      }, 1000);
+    } else if (currentStep === 'confirm') {
+      if (isExistingTenancy || tenancyType === 'existing') {
         setIsSubmitting(true);
         setTimeout(() => {
           setIsSubmitting(false);
+          setShowToastBanner(true);
           setShowSuccessModal(true);
-        }, 1500);
+        }, 1200);
+      } else {
+        setWizardStep(steps.indexOf('sign'));
       }
     } else if (currentStep === 'sign') {
       if (!agreeToTerms) {
@@ -303,6 +358,44 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
       }, 1500);
     }
   };
+
+  const [propertyUnits, setPropertyUnits] = useState<UnitOption[]>([]);
+  const [isLoadingUnits, setIsLoadingUnits] = useState(false);
+
+  // Automatically select first property and fetch real units from GET /api/v1/properties/{id}
+  useEffect(() => {
+    if (visible && properties.length > 0 && !selectedProperty) {
+      setSelectedProperty(properties[0]);
+    }
+  }, [visible, properties]);
+
+  useEffect(() => {
+    if (visible && selectedProperty?.id) {
+      setIsLoadingUnits(true);
+      dispatch(fetchPropertyById(selectedProperty.id))
+        .unwrap()
+        .then((result: any) => {
+          const rawUnits = result?.units || result?.data?.units || [];
+          if (Array.isArray(rawUnits) && rawUnits.length > 0) {
+            const mappedUnits: UnitOption[] = rawUnits.map((u: any) => ({
+              id: u.unitIdentifier || u.id || 'Unit',
+              status: u.isOccupied ? 'occupied' : 'vacant',
+            }));
+            setPropertyUnits(mappedUnits);
+          } else {
+            setPropertyUnits([]);
+          }
+        })
+        .catch(() => {
+          setPropertyUnits([]);
+        })
+        .finally(() => {
+          setIsLoadingUnits(false);
+        });
+    } else if (!selectedProperty) {
+      setPropertyUnits([]);
+    }
+  }, [visible, selectedProperty?.id, dispatch]);
 
   const selectPropertyFromSheet = (property: PropertyOption) => {
     setSelectedProperty(property);
@@ -350,7 +443,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
   };
 
   // Date Picker States
-  const [activeDatePicker, setActiveDatePicker] = useState<'start' | 'end' | 'due' | null>(null);
+  const [activeDatePicker, setActiveDatePicker] = useState<'start' | 'end' | 'due' | 'feeDue' | null>(null);
   const [tempDate, setTempDate] = useState(new Date());
 
   const formatDate = (date: Date) => {
@@ -360,7 +453,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
     return `${day}/${month}/${year}`;
   };
 
-  const handleOpenDatePicker = (type: 'start' | 'end' | 'due') => {
+  const handleOpenDatePicker = (type: 'start' | 'end' | 'due' | 'feeDue') => {
     setActiveDatePicker(type);
     
     // Set tempDate to existing value if set, else new Date()
@@ -368,6 +461,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
     if (type === 'start') currentVal = rentStartDate;
     if (type === 'end') currentVal = rentEndDate;
     if (type === 'due') currentVal = rentDueDate;
+    if (type === 'feeDue') currentVal = customFeeDueDate;
 
     if (currentVal) {
       const parts = currentVal.split('/');
@@ -392,6 +486,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
     if (activeDatePicker === 'start') setRentStartDate(formatted);
     if (activeDatePicker === 'end') setRentEndDate(formatted);
     if (activeDatePicker === 'due') setRentDueDate(formatted);
+    if (activeDatePicker === 'feeDue') setCustomFeeDueDate(formatted);
   };
 
   const handleStartDatePress = () => {
@@ -492,7 +587,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
           <View style={styles.progressBarBg}>
             <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
           </View>
-          <Text style={styles.progressText}>Page 1 of 3</Text>
+          <Text style={styles.progressText}>Page {currentPageNumber} of 3</Text>
         </View>
 
         {/* Title & Subtitle */}
@@ -526,10 +621,21 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
               onPress={() => setIsPropertySheetVisible(true)}
               activeOpacity={0.7}
             >
-              <Image
-                source={selectedProperty.image}
-                style={styles.propertyThumb}
-              />
+              {selectedProperty.imageUrl ? (
+                <Image
+                  source={{ uri: selectedProperty.imageUrl }}
+                  style={styles.propertyThumb}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.propertyThumbPlaceholder}>
+                  <SymbolView
+                    name={{ ios: 'building.2.fill', android: 'apartment', web: 'apartment' }}
+                    size={20}
+                    tintColor="#D87C24"
+                  />
+                </View>
+              )}
               <View style={styles.selectedPropertyInfo}>
                 <Text style={styles.propertyCardTitle}>{selectedProperty.title}</Text>
                 <Text style={styles.propertyCardAddress} numberOfLines={2}>
@@ -554,7 +660,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
               />
             </View>
             <Text style={styles.tenancyInfoText}>
-              A 1% adminstration charge applies to every new tenancy created and any existing tenancy that is under 1 month.
+              A 1% adminstration charge applies to every new tenancy created and any existing tenancy that is under <Text style={{ fontWeight: 'bold', color: '#1A1C1E' }}>1 month.</Text>
             </Text>
           </View>
         </View>
@@ -564,51 +670,61 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
           <View style={styles.unitsSection}>
             <Text style={styles.unitGridTitle}>Select one of the Available Vacant Units</Text>
             
-            <View style={styles.unitsGrid}>
-              {mockUnits.map((unit) => {
-                const isOccupied = unit.status === 'occupied';
-                const isSelected = selectedUnit === unit.id;
+            {isLoadingUnits ? (
+              <ActivityIndicator size="small" color="#D87C24" style={{ marginVertical: 20 }} />
+            ) : propertyUnits.length === 0 ? (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <Text style={{ fontFamily: 'Satoshi-Regular', fontSize: 13, color: '#8A8D93' }}>
+                  No units registered for this property.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.unitsGrid}>
+                {propertyUnits.map((unit) => {
+                  const isOccupied = unit.status === 'occupied';
+                  const isSelected = selectedUnit === unit.id;
 
-                let cardStyle = styles.unitBoxVacant;
-                let textStyle = styles.unitIdTextVacant;
-                let statusStyle = styles.unitStatusTextVacant;
+                  let cardStyle = styles.unitBoxVacant;
+                  let textStyle = styles.unitIdTextVacant;
+                  let statusStyle = styles.unitStatusTextVacant;
 
-                if (isOccupied) {
-                  cardStyle = styles.unitBoxOccupied;
-                  textStyle = styles.unitIdTextOccupied;
-                  statusStyle = styles.unitStatusTextOccupied;
-                } else if (isSelected) {
-                  cardStyle = styles.unitBoxSelected;
-                  textStyle = styles.unitIdTextSelected;
-                  statusStyle = styles.unitStatusTextSelected;
-                }
+                  if (isOccupied) {
+                    cardStyle = styles.unitBoxOccupied;
+                    textStyle = styles.unitIdTextOccupied;
+                    statusStyle = styles.unitStatusTextOccupied;
+                  } else if (isSelected) {
+                    cardStyle = styles.unitBoxSelected;
+                    textStyle = styles.unitIdTextSelected;
+                    statusStyle = styles.unitStatusTextSelected;
+                  }
 
-                return (
-                  <TouchableOpacity
-                    key={unit.id}
-                    style={[styles.unitBox, { width: unitBoxWidth }, cardStyle]}
-                    onPress={() => selectUnit(unit)}
-                    activeOpacity={isOccupied ? 1 : 0.7}
-                  >
-                    <Text style={[styles.unitIdText, textStyle]}>{unit.id}</Text>
-                    <Text style={[styles.unitStatusText, statusStyle]}>
-                      {isOccupied ? 'Occupied' : 'Vacant'}
-                    </Text>
+                  return (
+                    <TouchableOpacity
+                      key={unit.id}
+                      style={[styles.unitBox, { width: unitBoxWidth }, cardStyle]}
+                      onPress={() => selectUnit(unit)}
+                      activeOpacity={isOccupied ? 1 : 0.7}
+                    >
+                      <Text style={[styles.unitIdText, textStyle]}>{unit.id}</Text>
+                      <Text style={[styles.unitStatusText, statusStyle]}>
+                        {isOccupied ? 'Occupied' : 'Vacant'}
+                      </Text>
 
-                    {/* Orange checkmark badge on selected unit */}
-                    {isSelected && (
-                      <View style={styles.unitCheckBadge}>
-                        <SymbolView
-                          name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
-                          size={14}
-                          tintColor="#D87C24"
-                        />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                      {/* Orange checkmark badge on selected unit */}
+                      {isSelected && (
+                        <View style={styles.unitCheckBadge}>
+                          <SymbolView
+                            name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
+                            size={14}
+                            tintColor="#D87C24"
+                          />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -616,6 +732,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
   };
 
   // Screen 2: Upload Documents (Page 2 of 5)
+  // Screen 4: Upload Documents (Page 3 of 3)
   const renderUploadDocuments = () => (
     <View style={styles.content}>
       {/* Progress bar */}
@@ -623,7 +740,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         <View style={styles.progressBarBg}>
           <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
         </View>
-        <Text style={styles.progressText}>Page 2 of 5</Text>
+        <Text style={styles.progressText}>Page {currentPageNumber} of 3</Text>
       </View>
 
       {/* Title & Subtitle */}
@@ -634,46 +751,56 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         </Text>
       </View>
 
-      {/* Tabs selection */}
+      {/* Category Tabs */}
       <View style={styles.tabsRow}>
         <TouchableOpacity
           style={[
-            styles.tabBox,
+            styles.tabBoxCard,
             activeDocTab === 'contract' ? styles.tabBoxActive : styles.tabBoxInactive,
           ]}
           onPress={() => setActiveDocTab('contract')}
           activeOpacity={0.7}
         >
           <SymbolView
-            name={{ ios: 'doc.text.fill', android: 'description', web: 'description' }}
-            size={22}
+            name={{ ios: 'creditcard', android: 'credit_card', web: 'credit_card' }}
+            size={24}
             tintColor={activeDocTab === 'contract' ? '#D87C24' : '#8A8D93'}
           />
-          <Text style={[styles.tabBoxText, activeDocTab === 'contract' ? styles.tabBoxTextActive : styles.tabBoxTextInactive]}>
-            Tenancy Contract
+          <Text
+            style={[
+              styles.tabBoxText,
+              activeDocTab === 'contract' ? styles.tabBoxTextActive : styles.tabBoxTextInactive,
+            ]}
+          >
+            Tenancy{'\n'}Contract
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[
-            styles.tabBox,
+            styles.tabBoxCard,
             activeDocTab === 'receipts' ? styles.tabBoxActive : styles.tabBoxInactive,
           ]}
           onPress={() => setActiveDocTab('receipts')}
           activeOpacity={0.7}
         >
           <SymbolView
-            name={{ ios: 'scroll.fill', android: 'receipt_long', web: 'receipt_long' }}
-            size={22}
+            name={{ ios: 'receipt', android: 'receipt', web: 'receipt' }}
+            size={24}
             tintColor={activeDocTab === 'receipts' ? '#D87C24' : '#8A8D93'}
           />
-          <Text style={[styles.tabBoxText, activeDocTab === 'receipts' ? styles.tabBoxTextActive : styles.tabBoxTextInactive]}>
-            Rent Receipts
+          <Text
+            style={[
+              styles.tabBoxText,
+              activeDocTab === 'receipts' ? styles.tabBoxTextActive : styles.tabBoxTextInactive,
+            ]}
+          >
+            Rent{'\n'}Receipts
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Drag & Drop area */}
+      {/* Upload Drag & Drop Area */}
       <TouchableOpacity
         style={styles.uploadDropzone}
         onPress={handleUploadPress}
@@ -681,23 +808,23 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
       >
         <SymbolView
           name={{ ios: 'square.and.arrow.up', android: 'upload', web: 'upload' }}
-          size={32}
+          size={36}
           tintColor="#D87C24"
         />
         <Text style={styles.uploadMainText}>Tap to upload to drag files here.</Text>
-        <Text style={styles.uploadSubText}>JPG, PNG, WEBP, PDF (max. 5MB)</Text>
+        <Text style={styles.uploadSubText}>JPG, PNG, WEBP,PDF (max. 5MB)</Text>
       </TouchableOpacity>
 
       {/* Uploaded Documents List */}
       <View style={styles.documentListSection}>
         <View style={styles.docSectionHeader}>
-          <Text style={styles.docSectionTitle}>Upload Documents</Text>
+          <Text style={styles.docSectionTitle}>Uploaded Documents</Text>
           <Text style={styles.docSectionStatus}>{uploadedFiles.length}/2 Uploaded</Text>
         </View>
 
         {uploadedFiles.map((file) => (
           <View key={file.id} style={styles.uploadedDocCard}>
-            {/* Miniature page representation */}
+            {/* Miniature page thumbnail */}
             <View style={styles.docThumbnail}>
               <View style={styles.thumbnailLineLong} />
               <View style={styles.thumbnailLineShort} />
@@ -707,29 +834,21 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
 
             {/* Document details */}
             <View style={styles.docDetailsCol}>
-              <Text style={styles.docTitle} numberOfLines={1}>{file.name}</Text>
-              <Text style={styles.docDate}>{file.date}</Text>
-              
-              {/* Green status badge */}
-              <View style={styles.uploadedBadge}>
-                <SymbolView
-                  name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
-                  size={12}
-                  tintColor="#2E7D32"
-                />
-                <Text style={styles.uploadedBadgeText}>Uploaded</Text>
-              </View>
+              <Text style={styles.docTitle} numberOfLines={1}>
+                {file.name}
+              </Text>
+              <Text style={styles.docDate}>{file.size || '102KB'}</Text>
             </View>
 
-            {/* Red delete trash bin action */}
+            {/* Light pink trash icon button */}
             <TouchableOpacity
-              style={styles.deleteFileBtn}
+              style={styles.deleteFileBtnSquare}
               onPress={() => handleDeleteFile(file.id)}
               activeOpacity={0.7}
             >
               <SymbolView
-                name={{ ios: 'trash.fill', android: 'delete', web: 'delete' }}
-                size={16}
+                name={{ ios: 'trash', android: 'delete', web: 'delete' }}
+                size={18}
                 tintColor="#EF4444"
               />
             </TouchableOpacity>
@@ -739,7 +858,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
     </View>
   );
 
-  // Screen 3: Rent & Dates (Page 3 of 5)
+  // Screen 3: Rent & Dates (Page 3 of 3)
   const renderRentDates = () => (
     <View style={styles.content}>
       {/* Progress bar */}
@@ -747,7 +866,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         <View style={styles.progressBarBg}>
           <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
         </View>
-        <Text style={styles.progressText}>Page 3 of 5</Text>
+        <Text style={styles.progressText}>Page {currentPageNumber} of 3</Text>
       </View>
 
       {/* Title & Subtitle */}
@@ -763,12 +882,12 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         <Text style={styles.fieldLabel}>Rent amount</Text>
         
         <View style={styles.rentAmountRow}>
-          {/* NGN dropdown */}
+          {/* NGN currency box */}
           <View style={styles.currencyBox}>
-            <View style={styles.flagContainer}>
-              <View style={[styles.flagStrip, { backgroundColor: '#008751' }]} />
-              <View style={[styles.flagStrip, { backgroundColor: '#FFFFFF' }]} />
-              <View style={[styles.flagStrip, { backgroundColor: '#008751' }]} />
+            <View style={styles.flagCircleSmall}>
+              <View style={styles.flagGreen} />
+              <View style={styles.flagWhite} />
+              <View style={styles.flagGreen} />
             </View>
             <Text style={styles.currencyText}>NGN</Text>
           </View>
@@ -783,52 +902,6 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
             onChangeText={setRentAmount}
           />
         </View>
-
-        {/* Custom Fees expander view */}
-        {showCustomFees && (
-          <View style={styles.customFeeContainer}>
-            <View style={styles.customFeeRow}>
-              <View style={styles.feeField}>
-                <Text style={styles.fieldLabelSub}>Fee</Text>
-                <TextInput
-                  style={styles.feeInput}
-                  placeholder="Enter Fee Name"
-                  placeholderTextColor="#8A8D93"
-                  value={customFeeName}
-                  onChangeText={setCustomFeeName}
-                />
-              </View>
-
-              <View style={styles.feeField}>
-                <Text style={styles.fieldLabelSub}>Amount</Text>
-                <TextInput
-                  style={styles.feeInput}
-                  placeholder="Enter Amount"
-                  placeholderTextColor="#8A8D93"
-                  keyboardType="numeric"
-                  value={customFeeAmount}
-                  onChangeText={setCustomFeeAmount}
-                />
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Add custom fees link */}
-        <TouchableOpacity
-          style={styles.addPropertyLink}
-          onPress={() => setShowCustomFees(!showCustomFees)}
-          activeOpacity={0.7}
-        >
-          <SymbolView
-            name={{ ios: 'doc.badge.plus', android: 'note_add', web: 'note_add' }}
-            size={16}
-            tintColor="#D87C24"
-          />
-          <Text style={styles.addPropertyLinkText}>
-            {showCustomFees ? 'Hide custom fees' : 'Add custom fees'}
-          </Text>
-        </TouchableOpacity>
       </View>
 
       {/* Rent Duration Selector (Stepper) */}
@@ -844,19 +917,24 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
               onPress={() => rentDuration > 0 && setRentDuration(rentDuration - 1)}
               activeOpacity={0.7}
             >
-              <Text style={styles.stepperBtnMinusText}>-</Text>
+              <Text style={styles.stepperBtnMinusText}>—</Text>
             </TouchableOpacity>
 
             {/* Value */}
             <Text style={styles.stepperValText}>{rentDuration}</Text>
 
-            {/* Plus */}
+            {/* Plus (Orange square button) */}
             <TouchableOpacity
-              style={styles.stepperBtnPlus}
+              style={styles.stepperBtnPlusSquare}
               onPress={() => setRentDuration(rentDuration + 1)}
               activeOpacity={0.7}
             >
-              <Text style={styles.stepperBtnPlusText}>+</Text>
+              <SymbolView
+                name={{ ios: 'plus', android: 'add', web: 'add' }}
+                size={16}
+                tintColor="#FFFFFF"
+                weight="bold"
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -920,40 +998,107 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         </TouchableOpacity>
       </View>
 
-      {/* Late fee selector expander view */}
-      {showLateFee && (
-        <View style={styles.customFeeContainer}>
-          <Text style={styles.fieldLabelSub}>Late Fee Amount (NGN)</Text>
-          <TextInput
-            style={styles.datePickerInputFull}
-            placeholder="Enter late fee amount"
-            placeholderTextColor="#8A8D93"
-            keyboardType="numeric"
-            value={lateFeeAmount}
-            onChangeText={setLateFeeAmount}
-          />
+      {/* Custom Fee Card Container */}
+      {showCustomFees && (
+        <View style={styles.customFeeCardBox}>
+          {/* Delete Icon on Top Right */}
+          <TouchableOpacity
+            style={styles.customFeeDeleteBtn}
+            onPress={() => {
+              setShowCustomFees(false);
+              setCustomFeeName('');
+              setCustomFeeAmount('');
+              setCustomFeeDueDate('');
+            }}
+            activeOpacity={0.7}
+          >
+            <SymbolView
+              name={{ ios: 'trash', android: 'delete', web: 'delete' }}
+              size={18}
+              tintColor="#EF4444"
+            />
+          </TouchableOpacity>
+
+          {/* Fee Name * Dropdown */}
+          <View style={styles.formGroupSpacing}>
+            <Text style={styles.fieldLabel}>
+              Fee Name <Text style={{ color: '#EF4444' }}>*</Text>
+            </Text>
+            <TouchableOpacity
+              style={styles.dropdownSelector}
+              onPress={() => setIsFeeSheetVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={customFeeName ? styles.dateTextFilled : styles.dropdownPlaceholder}>
+                {customFeeName || 'Select Fee'}
+              </Text>
+              <SymbolView
+                name={{ ios: 'chevron.down', android: 'arrow_drop_down', web: 'arrow_drop_down' }}
+                size={18}
+                tintColor="#8A8D93"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Fee Amount row */}
+          <View style={styles.rentAmountRow}>
+            <View style={styles.currencyBox}>
+              <View style={styles.flagCircleSmall}>
+                <View style={styles.flagGreen} />
+                <View style={styles.flagWhite} />
+                <View style={styles.flagGreen} />
+              </View>
+              <Text style={styles.currencyText}>NGN</Text>
+            </View>
+
+            <TextInput
+              style={styles.amountInput}
+              placeholder="Enter amount"
+              placeholderTextColor="#8A8D93"
+              keyboardType="numeric"
+              value={customFeeAmount}
+              onChangeText={setCustomFeeAmount}
+            />
+          </View>
+
+          {/* Payment is due on */}
+          <View style={[styles.formGroupSpacing, { marginTop: 12 }]}>
+            <Text style={styles.fieldLabel}>Payment is due on</Text>
+            <TouchableOpacity
+              style={styles.datePickerInputFull}
+              onPress={() => handleOpenDatePicker('feeDue')}
+              activeOpacity={0.8}
+            >
+              <Text style={customFeeDueDate ? styles.dateTextFilled : styles.datePlaceholder}>
+                {customFeeDueDate || 'Select date'}
+              </Text>
+              <SymbolView
+                name={{ ios: 'calendar', android: 'calendar_today', web: 'calendar_today' }}
+                size={16}
+                tintColor="#8A8D93"
+              />
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
-      {/* Add late fee link */}
+      {/* Add custom fees link */}
       <TouchableOpacity
-        style={[styles.addPropertyLink, { marginTop: 12 }]}
-        onPress={() => setShowLateFee(!showLateFee)}
+        style={styles.addCustomFeeBtn}
+        onPress={() => setShowCustomFees(true)}
         activeOpacity={0.7}
       >
         <SymbolView
           name={{ ios: 'doc.badge.plus', android: 'note_add', web: 'note_add' }}
-          size={16}
+          size={18}
           tintColor="#D87C24"
         />
-        <Text style={styles.addPropertyLinkText}>
-          {showLateFee ? 'Hide late fee' : 'Add late fee'}
-        </Text>
+        <Text style={styles.addCustomFeeText}>Add custom fees</Text>
       </TouchableOpacity>
     </View>
   );
 
-  // Screen 4: Resident Details (Page 4 of 5)
+  // Screen 2: Tenant Profile (Page 2 of 3)
   const renderResidentDetails = () => (
     <View style={styles.content}>
       {/* Progress bar */}
@@ -961,174 +1106,273 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
         <View style={styles.progressBarBg}>
           <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
         </View>
-        <Text style={styles.progressText}>Page 4 of 5</Text>
+        <Text style={styles.progressText}>Page {currentPageNumber} of 3</Text>
       </View>
 
       {/* Title & Subtitle */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionMainTitle}>Resident Details</Text>
+        <Text style={styles.sectionMainTitle}>Tenant Profile</Text>
         <Text style={styles.sectionSubtitle}>
-          Enter the contact details for the primary resident of this tenancy
+          Enter the tenant details to proceed
         </Text>
       </View>
 
-      {/* Fields */}
-      <View style={styles.formGroupSpacing}>
-        <Text style={styles.fieldLabel}>Resident Full Name</Text>
-        <TextInput
-          style={styles.datePickerInputFull}
-          placeholder="Enter resident full name"
-          placeholderTextColor="#8A8D93"
-          value={residentName}
-          onChangeText={setResidentName}
-        />
+      {/* First Name & Last Name row */}
+      <View style={styles.nameRow}>
+        <View style={styles.nameCol}>
+          <Text style={styles.fieldLabel}>First name</Text>
+          <TextInput
+            style={styles.datePickerInputFull}
+            placeholder="Enter first name"
+            placeholderTextColor="#8A8D93"
+            value={firstName}
+            onChangeText={(text) => {
+              setFirstName(text);
+              setResidentName(`${text} ${lastName}`.trim());
+            }}
+          />
+        </View>
+        <View style={styles.nameCol}>
+          <Text style={styles.fieldLabel}>Last name</Text>
+          <TextInput
+            style={styles.datePickerInputFull}
+            placeholder="Enter last name"
+            placeholderTextColor="#8A8D93"
+            value={lastName}
+            onChangeText={(text) => {
+              setLastName(text);
+              setResidentName(`${firstName} ${text}`.trim());
+            }}
+          />
+        </View>
       </View>
 
+      {/* Email Address */}
       <View style={styles.formGroupSpacing}>
         <Text style={styles.fieldLabel}>Email Address</Text>
         <TextInput
-          style={styles.datePickerInputFull}
-          placeholder="Enter resident email address"
+          style={[styles.datePickerInputFull, emailError ? styles.inputErrorBorder : null]}
+          placeholder="Enter Email address"
           placeholderTextColor="#8A8D93"
           keyboardType="email-address"
+          autoCapitalize="none"
           value={residentEmail}
-          onChangeText={setResidentEmail}
+          onChangeText={(text) => {
+            setResidentEmail(text);
+            if (emailError) validateEmail(text, true);
+          }}
+          onBlur={() => validateEmail(residentEmail, true)}
         />
+        {emailError ? <Text style={styles.fieldErrorText}>{emailError}</Text> : null}
       </View>
 
+      {/* Phone Number with Nigerian Flag Badge */}
       <View style={styles.formGroupSpacing}>
-        <Text style={styles.fieldLabel}>Phone Number (Optional)</Text>
-        <TextInput
-          style={styles.datePickerInputFull}
-          placeholder="Enter resident phone number"
-          placeholderTextColor="#8A8D93"
-          keyboardType="phone-pad"
-          value={residentPhone}
-          onChangeText={setResidentPhone}
-        />
+        <Text style={styles.fieldLabel}>Phone Number</Text>
+        <View style={styles.phoneInputRow}>
+          <View style={styles.phoneCountryBox}>
+            <View style={styles.flagCircle}>
+              <View style={styles.flagGreen} />
+              <View style={styles.flagWhite} />
+              <View style={styles.flagGreen} />
+            </View>
+            <Text style={styles.phoneCodeText}>+234</Text>
+          </View>
+          <TextInput
+            style={[styles.phoneInputFlex, phoneError ? styles.inputErrorBorder : null]}
+            placeholder="Enter Phone Number"
+            placeholderTextColor="#8A8D93"
+            keyboardType="phone-pad"
+            value={residentPhone}
+            onChangeText={(text) => {
+              setResidentPhone(text);
+              if (phoneError) validatePhone(text, true);
+            }}
+            onBlur={() => validatePhone(residentPhone, true)}
+          />
+        </View>
+        {phoneError ? <Text style={styles.fieldErrorText}>{phoneError}</Text> : null}
       </View>
     </View>
   );
 
-  // Screen 5: Review & Confirm (Page 4 of 5 or Page 5 of 5)
-  const renderReviewSubmit = () => (
-    <View style={styles.content}>
-      {/* Progress bar */}
-      <View style={styles.progressRow}>
-        <View style={styles.progressBarBg}>
-          <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
-        </View>
-        <Text style={styles.progressText}>Page {wizardStep} of 5</Text>
-      </View>
+  // Pay Administration Charge Screen (Images 4 & 5)
+  const renderPayAdminCharge = () => {
+    const numRent = Number(rentAmount.replace(/,/g, '')) || 1500000;
+    const adminFee = Math.round(numRent * 0.01);
 
-      {/* Title & Subtitle */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionMainTitle}>
-          {tenancyType === 'new' ? 'Confirm Details' : 'Review & Confirm'}
-        </Text>
-        <Text style={styles.sectionSubtitle}>
-          {tenancyType === 'new'
-            ? 'Confirm all details are correct before generating the tenancy agreement.'
-            : 'Double check all fields before finalizing the tenancy creation'}
-        </Text>
-      </View>
-
-      {/* Property Details Card */}
-      <View style={styles.reviewSectionCard}>
-        <View style={styles.reviewCardHeader}>
-          <Text style={styles.reviewHeader}>Property Details</Text>
-          <TouchableOpacity onPress={() => setWizardStep(1)}>
-            <Text style={styles.editLinkText}>Edit</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Property</Text>
-          <Text style={styles.reviewValue}>{selectedProperty?.title || 'Apo Wumba Homes'}</Text>
+    return (
+      <View style={styles.content}>
+        {/* Progress bar */}
+        <View style={styles.progressRow}>
+          <View style={styles.progressBarBg}>
+            <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
+          </View>
+          <Text style={styles.progressText}>Page 3 of 3</Text>
         </View>
 
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Unit</Text>
-          <Text style={styles.reviewValue}>{selectedUnit || 'B1'}</Text>
-        </View>
-      </View>
-
-      {/* Tenant Profile Card */}
-      <View style={styles.reviewSectionCard}>
-        <View style={styles.reviewCardHeader}>
-          <Text style={styles.reviewHeader}>Tenant Profile</Text>
-          <TouchableOpacity onPress={() => setWizardStep(steps.indexOf('resident'))}>
-            <Text style={styles.editLinkText}>Edit</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Name</Text>
-          <Text style={styles.reviewValue}>{residentName || 'Saad Bashar'}</Text>
-        </View>
-
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Email address</Text>
-          <Text style={styles.reviewValue}>{residentEmail || 'saadbashar1433@gmail.com'}</Text>
-        </View>
-
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Phone Number</Text>
-          <Text style={styles.reviewValue}>{residentPhone || '+234 (0) 814 171 4124'}</Text>
-        </View>
-      </View>
-
-      {/* Rent & Dates Card */}
-      <View style={styles.reviewSectionCard}>
-        <View style={styles.reviewCardHeader}>
-          <Text style={styles.reviewHeader}>Rent & Dates</Text>
-          <TouchableOpacity onPress={() => setWizardStep(steps.indexOf('rent'))}>
-            <Text style={styles.editLinkText}>Edit</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Rent Amount</Text>
-          <Text style={styles.reviewValue}>
-            NGN {rentAmount ? Number(rentAmount).toLocaleString() : '1,270,000'}
+        {/* Title & Subtitle */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionMainTitle}>Pay Administration Charge</Text>
+          <Text style={styles.sectionSubtitle}>
+            Pay the administration charge of this tenancy to have premium access.
           </Text>
         </View>
 
-        {showCustomFees && customFeeName && (
-          <View style={styles.reviewItemRow}>
-            <Text style={styles.reviewLabel}>{customFeeName}</Text>
-            <Text style={styles.reviewValue}>
-              NGN {customFeeAmount ? Number(customFeeAmount).toLocaleString() : '300,000'}
+        {/* Payment Summary Box */}
+        <View style={styles.paySummaryCard}>
+          <Text style={styles.paySummaryHeader}>Payment Summary</Text>
+
+          <View style={styles.paySummaryRow}>
+            <Text style={styles.paySummaryLabel}>Tenancy Value</Text>
+            <Text style={styles.paySummaryVal}>
+              ₦{numRent.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </Text>
           </View>
-        )}
 
-        <View style={styles.reviewItemRow}>
-          <Text style={styles.reviewLabel}>Rent Duration (in years)</Text>
-          <Text style={styles.reviewValue}>
-            {rentDuration} {rentDuration === 1 ? 'year' : 'years'}
-          </Text>
+          <View style={styles.paySummaryRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.paySummaryLabel}>Administrative Fee (1%)</Text>
+              <SymbolView
+                name={{ ios: 'info.circle', android: 'info', web: 'info' }}
+                size={14}
+                tintColor="#8A8D93"
+              />
+            </View>
+            <Text style={styles.paySummaryVal}>
+              ₦{adminFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            </Text>
+          </View>
         </View>
       </View>
+    );
+  };
 
-      {/* Uploaded Documents Card (Existing Tenancy Only) */}
-      {tenancyType === 'existing' && uploadedFiles.length > 0 && (
+  // Screen 5: Confirm Details (Image 2)
+  const renderReviewSubmit = () => {
+    const numRent = Number(rentAmount.replace(/,/g, '')) || 1270000;
+    const adminFee = Math.round(numRent * 0.1); // 10% charge representation matching mockup
+    const customFeeNum = customFeeAmount ? Number(customFeeAmount.replace(/,/g, '')) : 300000;
+
+    return (
+      <View style={styles.content}>
+        {/* Progress bar */}
+        <View style={styles.progressRow}>
+          <View style={styles.progressBarBg}>
+            <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
+          </View>
+          <Text style={styles.progressText}>Page 4 of 5</Text>
+        </View>
+
+        {/* Title & Subtitle */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionMainTitle}>Confirm Details</Text>
+          <Text style={styles.sectionSubtitle}>
+            Confirm all details are correct before generating the tenancy agreement.
+          </Text>
+        </View>
+
+        {/* Property Details Card */}
         <View style={styles.reviewSectionCard}>
           <View style={styles.reviewCardHeader}>
-            <Text style={styles.reviewHeader}>Uploaded Documents</Text>
-            <TouchableOpacity onPress={() => setWizardStep(steps.indexOf('uploads'))}>
+            <Text style={styles.reviewHeader}>Property Details</Text>
+            <TouchableOpacity onPress={() => setWizardStep(0)}>
               <Text style={styles.editLinkText}>Edit</Text>
             </TouchableOpacity>
           </View>
-          
+
           <View style={styles.reviewItemRow}>
-            <Text style={styles.reviewLabel}>Document</Text>
-            <Text style={styles.reviewValue} numberOfLines={1}>{uploadedFiles[0].name}</Text>
+            <Text style={styles.reviewLabel}>Property</Text>
+            <Text style={styles.reviewValue}>{selectedProperty?.title || 'Apo Wumba Homes'}</Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Unit</Text>
+            <Text style={styles.reviewValue}>{selectedUnit || 'B1'}</Text>
           </View>
         </View>
-      )}
-    </View>
-  );
+
+        {/* Tenant Profile Card */}
+        <View style={styles.reviewSectionCard}>
+          <View style={styles.reviewCardHeader}>
+            <Text style={styles.reviewHeader}>Tenant Profile</Text>
+            <TouchableOpacity onPress={() => setWizardStep(1)}>
+              <Text style={styles.editLinkText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Name</Text>
+            <Text style={styles.reviewValue}>
+              {residentName || (firstName ? `${firstName} ${lastName}`.trim() : 'Saad Bashar')}
+            </Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Email address</Text>
+            <Text style={styles.reviewValue}>{residentEmail || 'saadbashar1433@gmail.com'}</Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Phone Number</Text>
+            <Text style={styles.reviewValue}>{residentPhone || '+234 (0) 814 171 4124'}</Text>
+          </View>
+        </View>
+
+        {/* Payments Card */}
+        <View style={styles.reviewSectionCard}>
+          <View style={styles.reviewCardHeader}>
+            <Text style={styles.reviewHeader}>Payments</Text>
+            <TouchableOpacity onPress={() => setWizardStep(2)}>
+              <Text style={styles.editLinkText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Rent</Text>
+            <Text style={styles.reviewValue}>NGN {numRent.toLocaleString()}</Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Administrative Charge (1%)</Text>
+            <Text style={styles.reviewValue}>NGN {adminFee.toLocaleString()}</Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Deposit Fee</Text>
+            <Text style={styles.reviewValue}>NGN {customFeeNum.toLocaleString()}</Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Occupiers' Liability Insurance</Text>
+            <Text style={styles.reviewValue}>NGN 5,000</Text>
+          </View>
+
+          <View style={styles.reviewItemRow}>
+            <Text style={styles.reviewLabel}>Rent Duration (in years)</Text>
+            <Text style={styles.reviewValue}>
+              {rentDuration || 1} {rentDuration === 1 ? 'year' : 'years'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Bottom Info Banner */}
+        <View style={[styles.infoBanner, { marginTop: 16 }]}>
+          <View style={styles.infoIconWrapper}>
+            <SymbolView
+              name={{ ios: 'info.circle', android: 'info', web: 'info' }}
+              size={18}
+              tintColor="#D87C24"
+            />
+          </View>
+          <Text style={styles.tenancyInfoText}>
+            A 1% adminstration charge applies to every new tenancy created and any existing tenancy
+            that is under <Text style={{ fontWeight: 'bold', color: '#1A1C1E' }}>1 month.</Text>
+          </Text>
+        </View>
+      </View>
+    );
+  };
 
   // Screen 6: Sign Agreement (Page 5 of 5 for New Tenancy)
   const renderSignAgreement = () => (
@@ -1234,6 +1478,22 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.container}>
+        {/* Top Toast Banner for Recorded Tenancy (Image 3) */}
+        {showToastBanner && (
+          <View style={styles.topToastContainer}>
+            <View style={styles.toastCheckSquare}>
+              <SymbolView
+                name={{ ios: 'checkmark', android: 'check', web: 'check' }}
+                size={14}
+                tintColor="#FFFFFF"
+                weight="bold"
+              />
+            </View>
+            <Text style={styles.toastText}>
+              Tenancy recorded! We will let you know when it’s approved.
+            </Text>
+          </View>
+        )}
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
@@ -1288,6 +1548,7 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
               {steps[wizardStep] === 'uploads' && renderUploadDocuments()}
               {steps[wizardStep] === 'resident' && renderResidentDetails()}
               {steps[wizardStep] === 'rent' && renderRentDates()}
+              {steps[wizardStep] === 'pay' && renderPayAdminCharge()}
               {steps[wizardStep] === 'confirm' && renderReviewSubmit()}
               {steps[wizardStep] === 'sign' && renderSignAgreement()}
             </ScrollView>
@@ -1327,10 +1588,12 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
                 >
                   <Text style={styles.proceedButtonText}>
                     {steps[wizardStep] === 'confirm' 
-                      ? (tenancyType === 'new' ? 'Generate Agreement' : 'Create Tenancy') 
-                      : steps[wizardStep] === 'sign' 
-                        ? 'Complete Tenancy' 
-                        : 'Proceed'}
+                      ? (isExistingTenancy ? 'Record Tenant' : 'Generate Agreement') 
+                      : steps[wizardStep] === 'pay' 
+                        ? `Pay ₦${Math.round((Number(rentAmount.replace(/,/g, '')) || 1500000) * 0.01).toLocaleString()} →`
+                        : steps[wizardStep] === 'sign' 
+                          ? 'Complete Tenancy' 
+                          : 'Proceed'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1347,15 +1610,26 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
           <View style={styles.bottomSheetList}>
             {properties.map((prop, index) => (
               <TouchableOpacity
-                key={index}
+                key={prop.id || index}
                 style={styles.sheetItemRow}
                 onPress={() => selectPropertyFromSheet(prop)}
                 activeOpacity={0.8}
               >
-                <Image
-                  source={prop.image}
-                  style={styles.propertyThumbLarge}
-                />
+                {prop.imageUrl ? (
+                  <Image
+                    source={{ uri: prop.imageUrl }}
+                    style={styles.propertyThumbLarge}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.propertyThumbLargePlaceholder}>
+                    <SymbolView
+                      name={{ ios: 'building.2.fill', android: 'apartment', web: 'apartment' }}
+                      size={24}
+                      tintColor="#D87C24"
+                    />
+                  </View>
+                )}
                 <View style={styles.sheetItemInfo}>
                   <Text style={styles.sheetItemTitle}>{prop.title}</Text>
                   <Text style={styles.sheetItemAddress} numberOfLines={2}>
@@ -1364,19 +1638,36 @@ export default function CreateTenancyFlow({ visible, onClose }: CreateTenancyFlo
                 </View>
               </TouchableOpacity>
             ))}
+          </View>
+        </AppBottomSheet>
 
-            {/* Bottom Sheet Proceed Button */}
-            <TouchableOpacity
-              style={styles.sheetProceedButton}
-              onPress={() => {
-                if (properties.length > 0) {
-                  selectPropertyFromSheet(properties[0]);
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.sheetProceedText}>Proceed</Text>
-            </TouchableOpacity>
+        {/* Choose Fee Name Bottom Sheet */}
+        <AppBottomSheet
+          visible={isFeeSheetVisible}
+          onClose={() => setIsFeeSheetVisible(false)}
+          title="Select Fee"
+        >
+          <View style={styles.bottomSheetList}>
+            {['Caution Deposit', 'Service Charge', 'Legal Fee', 'Agency Fee', 'Maintenance Fee', 'Utility Fee', 'Other'].map((fee, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={styles.sheetOptionRow}
+                onPress={() => {
+                  setCustomFeeName(fee);
+                  setIsFeeSheetVisible(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.sheetOptionText}>{fee}</Text>
+                {customFeeName === fee && (
+                  <SymbolView
+                    name={{ ios: 'checkmark', android: 'check', web: 'check' }}
+                    size={16}
+                    tintColor="#D87C24"
+                  />
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         </AppBottomSheet>
 
@@ -1806,6 +2097,26 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 8,
   },
+  propertyThumbPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: '#FFF5EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFE3C6',
+  },
+  propertyThumbLargePlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: '#FFF5EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFE3C6',
+  },
   selectedPropertyInfo: {
     flex: 1,
     marginLeft: 12,
@@ -1910,11 +2221,9 @@ const styles = StyleSheet.create({
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderWidth: 1.5,
-    borderColor: '#EBE6DC',
-    borderRadius: 12,
-    backgroundColor: '#FFFDF9',
+    paddingVertical: 12,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
   },
   propertyThumbLarge: {
     width: 72,
@@ -1958,28 +2267,30 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 20,
   },
-  tabBox: {
-    flex: 1,
-    height: 80,
+  tabBoxCard: {
+    width: 100,
+    height: 96,
     borderRadius: 12,
     borderWidth: 1.5,
-    padding: 12,
+    padding: 10,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
   tabBoxActive: {
-    backgroundColor: '#FFFDF9',
-    borderColor: '#FFA726',
+    backgroundColor: '#FFF8F0',
+    borderColor: '#FFE3C6',
   },
   tabBoxInactive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAFA',
     borderColor: '#EBE6DC',
   },
   tabBoxText: {
     fontFamily: 'Satoshi-Bold',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 15,
   },
   tabBoxTextActive: {
     color: '#D87C24',
@@ -1990,7 +2301,7 @@ const styles = StyleSheet.create({
   uploadDropzone: {
     height: 140,
     borderWidth: 1.5,
-    borderColor: '#D87C24',
+    borderColor: '#C7C9CC',
     borderStyle: 'dashed',
     borderRadius: 12,
     backgroundColor: '#FFFDF9',
@@ -2000,15 +2311,25 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   uploadMainText: {
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: 'Satoshi-Bold',
     fontSize: 14,
-    color: '#1A1C1E',
-    fontWeight: '500',
+    color: '#4A4D52',
+    fontWeight: '700',
   },
   uploadSubText: {
     fontFamily: 'Satoshi-Regular',
-    fontSize: 11,
+    fontSize: 12,
     color: '#8A8D93',
+  },
+  deleteFileBtnSquare: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#FDF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   documentListSection: {
     gap: 12,
@@ -2035,10 +2356,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFDF9',
     borderWidth: 1.5,
-    borderColor: '#EBE6DC',
+    borderColor: '#FFE3C6',
     borderRadius: 12,
+    gap: 12,
   },
   docThumbnail: {
     width: 48,
@@ -2619,6 +2941,205 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+
+  // Payment Summary & Toast Styles
+  paySummaryCard: {
+    backgroundColor: '#FFFDF9',
+    borderWidth: 1.5,
+    borderColor: '#FFE3C6',
+    borderRadius: 12,
+    padding: 16,
+    gap: 16,
+    marginTop: 12,
+  },
+  paySummaryHeader: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#D87C24',
+  },
+  paySummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  paySummaryLabel: {
+    fontFamily: 'Satoshi-Medium',
+    fontSize: 14,
+    color: '#4A4D52',
+  },
+  paySummaryVal: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1C1E',
+  },
+  topToastContainer: {
+    position: 'absolute',
+    top: 50,
+    left: 16,
+    right: 16,
+    backgroundColor: '#D87C24',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  toastCheckSquare: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toastText: {
+    flex: 1,
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+
+  // Tenant Profile styles
+  nameRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  nameCol: {
+    flex: 1,
+    gap: 8,
+  },
+  phoneInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  phoneCountryBox: {
+    height: 48,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#EBE6DC',
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  flagCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+  },
+  flagGreen: {
+    flex: 1,
+    backgroundColor: '#008751',
+  },
+  flagWhite: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  phoneCodeText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1C1E',
+  },
+  phoneInputFlex: {
+    flex: 1,
+    height: 48,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#EBE6DC',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 14,
+    color: '#1A1C1E',
+  },
+  fieldErrorText: {
+    fontFamily: 'Satoshi-Medium',
+    fontSize: 11,
+    color: '#EF4444',
+    marginTop: 4,
+  },
+  inputErrorBorder: {
+    borderColor: '#EF4444',
+  },
+
+  // Custom Fee Card & Stepper styles
+  customFeeCardBox: {
+    backgroundColor: '#F8F6F0',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    position: 'relative',
+  },
+  customFeeDeleteBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    padding: 4,
+  },
+  stepperBtnPlusSquare: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    backgroundColor: '#FFA726',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addCustomFeeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginVertical: 12,
+    alignSelf: 'flex-start',
+  },
+  addCustomFeeText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#D87C24',
+  },
+  flagCircleSmall: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+  },
+  sheetOptionRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sheetOptionText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1A1C1E',
+  },
   
   // Empty State styling
   emptyTenancyContainer: {
@@ -2701,11 +3222,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8F0',
+    borderWidth: 1,
+    borderColor: '#FFE3C6',
+    borderRadius: 8,
+    padding: 12,
+    gap: 10,
+  },
+  infoIconWrapper: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   tenancyInfoText: {
+    flex: 1,
     fontFamily: 'Satoshi-Regular',
     fontSize: 12,
     color: '#8A8D93',
-    flex: 1,
-    lineHeight: 18,
+    lineHeight: 16,
   },
 });

@@ -46,8 +46,9 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   
   // Set up standard headers
   const headers = new Headers(options.headers || {});
+  const isFormData = typeof FormData !== 'undefined' && options.bodyData instanceof FormData;
   
-  if (!headers.has('Content-Type')) {
+  if (!isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
   if (!headers.has('Accept')) {
@@ -79,14 +80,18 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   };
 
   if (options.bodyData) {
-    config.body = JSON.stringify(options.bodyData);
+    if (isFormData) {
+      config.body = options.bodyData;
+    } else {
+      config.body = JSON.stringify(options.bodyData);
+    }
   }
 
   // Logger for debugging API calls in development
   if (__DEV__) {
     console.log(`[API Request] ${config.method || 'GET'} -> ${url}`, {
       headers: Object.fromEntries(headers.entries()),
-      body: options.bodyData,
+      body: isFormData ? '[FormData]' : options.bodyData,
     });
   }
 
@@ -138,12 +143,81 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   }
 }
 
+/**
+ * XMLHttpRequest-based FormData wrapper to bypass fetch Request wrapper
+ * issues with React Native custom FormData objects.
+ */
+export function uploadForm<T>(endpoint: string, formData: FormData, token?: string | null): Promise<T> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const url = `${BASE_URL}${endpoint}`;
+      const xhr = new XMLHttpRequest();
+
+      xhr.open('POST', url);
+
+      let authToken = token;
+      if (!authToken || authToken === 'bearerToken') {
+        const savedToken = await storage.getItem('buildsure_auth_token');
+        if (savedToken) {
+          authToken = savedToken;
+        } else if (stagingBearerToken && stagingBearerToken !== 'bearerToken') {
+          authToken = stagingBearerToken;
+        }
+      }
+
+      if (authToken && authToken !== 'bearerToken') {
+        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      }
+      xhr.setRequestHeader('Accept', 'application/json');
+
+      xhr.onload = () => {
+        let responseData: any = {};
+        try {
+          responseData = JSON.parse(xhr.responseText);
+        } catch {
+          responseData = { message: xhr.responseText };
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (__DEV__) {
+            console.log(`[API Response] ${xhr.status} <- ${url}`, responseData);
+          }
+          resolve(responseData as T);
+        } else {
+          const errorMessage =
+            responseData.message ||
+            responseData.error ||
+            (Array.isArray(responseData.messages) ? responseData.messages.join(', ') : null) ||
+            `Request failed with status ${xhr.status}`;
+
+          reject(new BuildsureApiError(errorMessage, xhr.status, responseData));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new BuildsureApiError('Network connectivity issue. Please check your internet connection.', 500));
+      };
+
+      if (__DEV__) {
+        console.log(`[API Request] POST (FormData via XHR) -> ${url}`);
+      }
+
+      xhr.send(formData as any);
+    } catch (err: any) {
+      reject(new BuildsureApiError(err.message || 'Failed to upload form data', 500));
+    }
+  });
+}
+
 export const api = {
   get: <T>(endpoint: string, userToken?: string | null) => 
     request<T>(endpoint, { method: 'GET', userToken }),
     
   post: <T>(endpoint: string, bodyData?: any, userToken?: string | null) => 
     request<T>(endpoint, { method: 'POST', bodyData, userToken }),
+
+  postForm: <T>(endpoint: string, formData: FormData, userToken?: string | null) => 
+    uploadForm<T>(endpoint, formData, userToken),
     
   put: <T>(endpoint: string, bodyData?: any, userToken?: string | null) => 
     request<T>(endpoint, { method: 'PUT', bodyData, userToken }),

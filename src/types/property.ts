@@ -16,7 +16,7 @@ export interface PropertyImage {
   displayOrder?: number;
 }
 
-export type PropertyType = 'residential' | 'commercial' | 'industrial' | 'land' | 'other' | string;
+export type PropertyType = 'townhome' | 'single_family' | 'apartment' | 'duplex_triplex' | 'other' | string;
 export type PropertyAge = 'below_1' | '1_to_3' | '3_to_7' | 'above_7' | string;
 export type ApprovalStatus = 'approved' | 'pending' | 'rejected' | string;
 
@@ -41,6 +41,7 @@ export interface Property {
   hasProofOfInsurance?: boolean;
   units?: PropertyUnit[];
   images?: PropertyImage[];
+  coverImage?: string;
   createdAt?: string;
   updatedAt?: string;
 }

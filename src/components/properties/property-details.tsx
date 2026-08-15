@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,31 +8,16 @@ import {
   Image,
   ScrollView,
   useWindowDimensions,
+  Linking,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { useAppSelector } from '@/store/hooks';
+import { getGoogleStaticMapUrl, getGoogleMapsUrl } from '@/utils/google-maps-service';
 
 interface UnitItem {
   id: string;
   status: 'occupied' | 'vacant';
 }
-
-const rentalUnits: UnitItem[] = [
-  { id: 'A1', status: 'occupied' },
-  { id: 'A2', status: 'occupied' },
-  { id: 'A3', status: 'occupied' },
-  { id: 'A4', status: 'occupied' },
-  { id: 'B1', status: 'vacant' },
-  { id: 'B2', status: 'vacant' },
-  { id: 'B3', status: 'occupied' },
-  { id: 'B5', status: 'occupied' },
-  { id: 'B4', status: 'occupied' },
-  { id: 'B6', status: 'occupied' },
-  { id: 'C1', status: 'vacant' },
-  { id: 'C2', status: 'occupied' },
-  { id: 'C3', status: 'occupied' },
-  { id: 'C4', status: 'vacant' },
-  { id: 'C5', status: 'occupied' },
-];
 
 interface PropertyDetailsProps {
   onClose: () => void;
@@ -43,6 +28,45 @@ interface PropertyDetailsProps {
 export default function PropertyDetails({ onClose, onOpenMenu, onCreateTenancyPress }: PropertyDetailsProps) {
   const { width } = useWindowDimensions();
   const unitBoxWidth = (width - 48 - 20) / 3;
+  const selectedProperty = useAppSelector((state) => state.properties.selectedProperty);
+
+  const titleText = selectedProperty?.propertyName || (selectedProperty as any)?.title || 'Property Details';
+
+  const fullAddress = useMemo(() => {
+    if (!selectedProperty) return 'Address not specified';
+    if (selectedProperty.streetAddress) {
+      return `${selectedProperty.streetAddress}${selectedProperty.city ? `, ${selectedProperty.city}` : ''}${selectedProperty.state ? `, ${selectedProperty.state}` : ''}`;
+    }
+    return (selectedProperty as any).address || 'Address not specified';
+  }, [selectedProperty]);
+
+  const unitsList = useMemo(() => {
+    if (selectedProperty?.units && Array.isArray(selectedProperty.units)) {
+      return selectedProperty.units.map((u: any) => ({
+        id: u.unitIdentifier || u.id || 'Unit',
+        status: u.isOccupied ? 'occupied' : 'vacant',
+      }));
+    }
+    return [];
+  }, [selectedProperty]);
+
+  const rentsCollectedText = useMemo(() => {
+    if (!selectedProperty?.units || selectedProperty.units.length === 0) return '₦0';
+    const sum = selectedProperty.units.reduce((acc: number, u: any) => {
+      if (u.isOccupied && u.monthlyRent) return acc + (Number(u.monthlyRent) * 12);
+      return acc;
+    }, 0);
+    return sum > 0 ? `₦${sum.toLocaleString()}` : '₦0';
+  }, [selectedProperty]);
+
+  const rentsDueText = useMemo(() => {
+    if (!selectedProperty?.units || selectedProperty.units.length === 0) return '₦0';
+    const sum = selectedProperty.units.reduce((acc: number, u: any) => {
+      if (!u.isOccupied && u.monthlyRent) return acc + Number(u.monthlyRent);
+      return acc;
+    }, 0);
+    return sum > 0 ? `₦${sum.toLocaleString()}` : '₦0';
+  }, [selectedProperty]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -60,7 +84,7 @@ export default function PropertyDetails({ onClose, onOpenMenu, onCreateTenancyPr
             weight="bold"
           />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Apo-Wumba Homes</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{titleText}</Text>
         <TouchableOpacity
           style={styles.headerRightMenu}
           onPress={(e) => {
@@ -81,17 +105,38 @@ export default function PropertyDetails({ onClose, onOpenMenu, onCreateTenancyPr
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailsScrollContent}>
         {/* Main Image */}
         <View style={styles.detailsImageContainer}>
-          <Image
-            source={require('../../../assets/images/apo_wumba.png')}
-            style={styles.detailsImage}
-            resizeMode="cover"
-          />
+          {selectedProperty?.coverImage || (selectedProperty?.images && selectedProperty.images[0]?.imageUrl) ? (
+            <Image
+              source={{ uri: selectedProperty?.coverImage || selectedProperty?.images?.[0]?.imageUrl }}
+              style={styles.detailsImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.detailsImage, { backgroundColor: '#FFF5EB', justifyContent: 'center', alignItems: 'center' }]}>
+              <SymbolView
+                name={{ ios: 'building.2.fill', android: 'apartment', web: 'apartment' }}
+                size={48}
+                tintColor="#D87C24"
+              />
+            </View>
+          )}
         </View>
 
-        {/* Address row */}
-        <View style={styles.addressRow}>
-          <Text style={styles.addressText}>
-            12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT
+        {/* Address row with Google Maps trigger */}
+        <TouchableOpacity
+          style={styles.addressRow}
+          onPress={() => {
+            const url = getGoogleMapsUrl(
+              fullAddress,
+              selectedProperty?.latitude,
+              selectedProperty?.longitude
+            );
+            Linking.openURL(url).catch(() => {});
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.addressText} numberOfLines={2}>
+            {fullAddress}
           </Text>
           <View style={styles.mapIconCircle}>
             <SymbolView
@@ -101,7 +146,41 @@ export default function PropertyDetails({ onClose, onOpenMenu, onCreateTenancyPr
               weight="semibold"
             />
           </View>
-        </View>
+        </TouchableOpacity>
+
+        {/* Google Maps Preview Card */}
+        <TouchableOpacity
+          style={styles.googleMapCard}
+          onPress={() => {
+            const url = getGoogleMapsUrl(
+              fullAddress,
+              selectedProperty?.latitude,
+              selectedProperty?.longitude
+            );
+            Linking.openURL(url).catch(() => {});
+          }}
+          activeOpacity={0.9}
+        >
+          <Image
+            source={{
+              uri: getGoogleStaticMapUrl(
+                fullAddress,
+                selectedProperty?.latitude,
+                selectedProperty?.longitude
+              ),
+            }}
+            style={styles.googleMapImage}
+            resizeMode="cover"
+          />
+          <View style={styles.googleMapOverlayBadge}>
+            <SymbolView
+              name={{ ios: 'mappin.and.ellipse', android: 'location_on', web: 'location_on' }}
+              size={14}
+              tintColor="#D87C24"
+            />
+            <Text style={styles.googleMapBadgeText}>Open in Google Maps ↗</Text>
+          </View>
+        </TouchableOpacity>
 
         {/* Actions Row */}
         <View style={styles.detailsActionsRow}>
@@ -137,13 +216,13 @@ export default function PropertyDetails({ onClose, onOpenMenu, onCreateTenancyPr
           <View style={styles.statsRow}>
             {/* Collected Card */}
             <View style={[styles.statCard, styles.orangeCard, styles.detailsStatCard]}>
-              <Text style={styles.detailsCardValue}>₦12,400,000</Text>
+              <Text style={styles.detailsCardValue}>{rentsCollectedText}</Text>
               <Text style={styles.detailsCardLabel}>Rents Collected</Text>
             </View>
 
             {/* Due Card */}
             <View style={[styles.statCard, styles.pinkCard, styles.detailsStatCard]}>
-              <Text style={styles.detailsCardValue}>₦2,100,000</Text>
+              <Text style={styles.detailsCardValue}>{rentsDueText}</Text>
               <Text style={styles.detailsCardLabelPink}>Rents Due</Text>
             </View>
           </View>
@@ -153,42 +232,50 @@ export default function PropertyDetails({ onClose, onOpenMenu, onCreateTenancyPr
         <View style={styles.detailsSection}>
           <View style={styles.unitsSectionHeader}>
             <Text style={styles.detailsSectionTitle}>Rental Units</Text>
-            <Text style={styles.unitsCount}>15</Text>
+            <Text style={styles.unitsCount}>{unitsList.length}</Text>
           </View>
 
           {/* Units Grid */}
-          <View style={styles.unitsGrid}>
-            {rentalUnits.map((unit) => {
-              const isOccupied = unit.status === 'occupied';
-              return (
-                <View
-                  key={unit.id}
-                  style={[
-                    styles.unitBox,
-                    { width: unitBoxWidth },
-                    isOccupied ? styles.unitBoxOccupied : styles.unitBoxVacant,
-                  ]}
-                >
-                  <Text
+          {unitsList.length === 0 ? (
+            <View style={{ paddingVertical: 16, alignItems: 'center' }}>
+              <Text style={{ fontFamily: 'Satoshi-Regular', fontSize: 13, color: '#8A8D93' }}>
+                No units registered for this property.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.unitsGrid}>
+              {unitsList.map((unit: any) => {
+                const isOccupied = unit.status === 'occupied';
+                return (
+                  <View
+                    key={unit.id}
                     style={[
-                      styles.unitIdText,
-                      isOccupied ? styles.unitIdTextOccupied : styles.unitIdTextVacant,
+                      styles.unitBox,
+                      { width: unitBoxWidth },
+                      isOccupied ? styles.unitBoxOccupied : styles.unitBoxVacant,
                     ]}
                   >
-                    {unit.id}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.unitStatusText,
-                      isOccupied ? styles.unitStatusTextOccupied : styles.unitStatusTextVacant,
-                    ]}
-                  >
-                    {isOccupied ? 'Occupied' : 'Vacant'}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        styles.unitIdText,
+                        isOccupied ? styles.unitIdTextOccupied : styles.unitIdTextVacant,
+                      ]}
+                    >
+                      {unit.id}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.unitStatusText,
+                        isOccupied ? styles.unitStatusTextOccupied : styles.unitStatusTextVacant,
+                      ]}
+                    >
+                      {isOccupied ? 'Occupied' : 'Vacant'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -391,6 +478,44 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#DB2777',
     marginTop: 4,
+  },
+  googleMapCard: {
+    marginHorizontal: 24,
+    marginTop: 10,
+    marginBottom: 16,
+    height: 140,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#EBE6DC',
+    position: 'relative',
+  },
+  googleMapImage: {
+    width: '100%',
+    height: '100%',
+  },
+  googleMapOverlayBadge: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  googleMapBadgeText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 12,
+    color: '#1A1C1E',
+    fontWeight: '700',
   },
   unitsSectionHeader: {
     flexDirection: 'row',

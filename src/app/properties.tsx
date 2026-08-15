@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   Animated,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { useToast } from '@/components/ui/toast';
 import { SymbolView } from 'expo-symbols';
@@ -32,7 +33,7 @@ import AddPropertyForm from '@/components/properties/add-property-form';
 import PropertyDetails from '@/components/properties/property-details';
 import CreateTenancyFlow from '@/components/tenancy/create-tenancy-flow';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { fetchProperties } from '@/store/slices/property-slice';
+import { fetchProperties, fetchPropertyById, deleteProperty } from '@/store/slices/property-slice';
 
 export default function PropertiesScreen() {
   const { showToast } = useToast();
@@ -63,7 +64,7 @@ export default function PropertiesScreen() {
   const hasProperties = hasPropertiesOverride !== null ? hasPropertiesOverride : displayProperties.length > 0;
   
   // View states
-  const [selectedProperty, setSelectedProperty] = useState<'apo-wumba' | null>(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [isAddingProperty, setIsAddingProperty] = useState(false);
   
   // Toggle states
@@ -71,6 +72,7 @@ export default function PropertiesScreen() {
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'drafts'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const [activePropertyForMenu, setActivePropertyForMenu] = useState<any | null>(null);
   const [isCreateTenancyVisible, setIsCreateTenancyVisible] = useState(false);
 
   // Animated values
@@ -112,7 +114,7 @@ export default function PropertiesScreen() {
 
   // Trigger details screen slide animation
   useEffect(() => {
-    if (selectedProperty === 'apo-wumba') {
+    if (selectedPropertyId) {
       setRenderDetails(true);
       setTabBarHidden(true);
       Animated.timing(detailsAnim, {
@@ -126,7 +128,7 @@ export default function PropertiesScreen() {
         duration: 300,
         useNativeDriver: true,
       }).start(() => {
-        if (selectedProperty !== 'apo-wumba') {
+        if (!selectedPropertyId) {
           setRenderDetails(false);
           if (!isAddingProperty) {
             setTabBarHidden(false);
@@ -134,7 +136,7 @@ export default function PropertiesScreen() {
         }
       });
     }
-  }, [selectedProperty, width]);
+  }, [selectedPropertyId, width]);
 
   // Trigger add property screen slide animation
   useEffect(() => {
@@ -154,7 +156,7 @@ export default function PropertiesScreen() {
       }).start(() => {
         if (!isAddingProperty) {
           setRenderAdd(false);
-          if (selectedProperty !== 'apo-wumba') {
+          if (!selectedPropertyId) {
             setTabBarHidden(false);
           }
         }
@@ -210,7 +212,7 @@ export default function PropertiesScreen() {
       {/* 1. Main Properties List View (Base Layer) */}
       <SafeAreaView
         style={styles.container}
-        pointerEvents={(!selectedProperty && !isAddingProperty) ? 'auto' : 'none'}
+        pointerEvents={(!selectedPropertyId && !isAddingProperty) ? 'auto' : 'none'}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -298,7 +300,12 @@ export default function PropertiesScreen() {
               {/* Total Properties Card */}
               <TouchableOpacity 
                 style={[styles.statCard, styles.orangeCard]}
-                onPress={() => setSelectedProperty('apo-wumba')}
+                onPress={() => {
+                  if (displayProperties.length > 0) {
+                    dispatch(fetchPropertyById(displayProperties[0].id));
+                    setSelectedPropertyId(displayProperties[0].id);
+                  }
+                }}
                 activeOpacity={0.9}
               >
                 <View style={styles.cardHeaderRow}>
@@ -437,7 +444,10 @@ export default function PropertiesScreen() {
                         <TouchableOpacity 
                           key={property.id}
                           style={styles.propertyCard}
-                          onPress={() => setSelectedProperty('apo-wumba')}
+                          onPress={() => {
+                            dispatch(fetchPropertyById(property.id));
+                            setSelectedPropertyId(property.id);
+                          }}
                           activeOpacity={0.9}
                         >
                           {coverImage && coverImage.startsWith('http') ? (
@@ -490,6 +500,7 @@ export default function PropertiesScreen() {
                             style={styles.menuButton}
                             onPress={(e) => {
                               e.stopPropagation?.();
+                              setActivePropertyForMenu(property);
                               setIsMenuVisible(true);
                             }}
                             activeOpacity={0.7}
@@ -588,15 +599,39 @@ export default function PropertiesScreen() {
             {
               label: 'Edit Property',
               onPress: () => {
-                showToast('Edit Property: Action triggered successfully!', 'success');
+                setIsMenuVisible(false);
+                showToast('Edit Property feature coming soon', 'info');
               },
             },
             {
               label: 'Delete Property',
               type: 'danger',
               onPress: () => {
-                setGlobalProperties([]);
-                setSelectedProperty(null);
+                const targetId = activePropertyForMenu?.id || reduxProperties[0]?.id;
+                setIsMenuVisible(false);
+                if (targetId) {
+                  Alert.alert(
+                    'Delete Property',
+                    'Are you sure you want to delete this property? This action cannot be undone.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await dispatch(deleteProperty(targetId)).unwrap();
+                            showToast('Property deleted successfully', 'success');
+                            setSelectedPropertyId(null);
+                            dispatch(fetchProperties());
+                          } catch (err: any) {
+                            showToast(err || 'Failed to delete property', 'error');
+                          }
+                        },
+                      },
+                    ]
+                  );
+                }
               },
             },
           ]}
@@ -610,11 +645,15 @@ export default function PropertiesScreen() {
             styles.animatedContainer,
             { transform: [{ translateX: detailsAnim }] },
           ]}
-          pointerEvents={selectedProperty === 'apo-wumba' ? 'auto' : 'none'}
+          pointerEvents={selectedPropertyId ? 'auto' : 'none'}
         >
           <PropertyDetails
-            onClose={() => setSelectedProperty(null)}
-            onOpenMenu={() => setIsMenuVisible(true)}
+            onClose={() => setSelectedPropertyId(null)}
+            onOpenMenu={() => {
+              const target = reduxProperties.find((p) => p.id === selectedPropertyId);
+              setActivePropertyForMenu(target || null);
+              setIsMenuVisible(true);
+            }}
             onCreateTenancyPress={() => setIsCreateTenancyVisible(true)}
           />
         </Animated.View>

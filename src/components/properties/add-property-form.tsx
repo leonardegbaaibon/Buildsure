@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -18,8 +18,9 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { useToast } from '@/components/ui/toast';
 import { useAppDispatch } from '@/store/hooks';
-import { createProperty, fetchProperties, addLocalProperty } from '@/store/slices/property-slice';
+import { createProperty, fetchProperties, fetchPropertyTypes, fetchPropertyAges, addLocalProperty } from '@/store/slices/property-slice';
 import { CreatePropertyPayload } from '@/types/property';
+import { getAddressPredictions, getPlaceDetails, PlacePrediction } from '@/utils/google-maps-service';
 
 export interface PropertyItem {
   id: string;
@@ -43,15 +44,61 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
   const { showToast } = useToast();
   const dispatch = useAppDispatch();
 
-  // Form states
-  const [formType, setFormType] = useState('Single Family Home');
+  // Dynamic Reference Data (fetched from GET /api/v1/reference/property-types & property-ages)
+  const [propertyTypes, setPropertyTypes] = useState<{ value: string; label: string }[]>([
+    { value: 'townhome', label: 'Townhome' },
+    { value: 'single_family', label: 'Single Family House' },
+    { value: 'apartment', label: 'Apartment' },
+    { value: 'duplex_triplex', label: 'Duplex / Triplex' },
+    { value: 'other', label: 'Other' },
+  ]);
+
+  const [propertyAges, setPropertyAges] = useState<{ value: string; label: string }[]>([
+    { value: 'below_1', label: 'Below 1 year' },
+    { value: '1_to_3', label: '1 - 3 years' },
+    { value: '3_to_7', label: '3 - 7 years' },
+    { value: 'above_7', label: 'Above 7 years' },
+  ]);
+
+  // Form states (stores values directly matching backend reference enum)
+  const [formType, setFormType] = useState('single_family');
+  const [customPropertyTypeInput, setCustomPropertyTypeInput] = useState('');
   const [formName, setFormName] = useState('');
   const [formAddress, setFormAddress] = useState('');
   const [formUnit, setFormUnit] = useState('');
-  const [formAge, setFormAge] = useState('Above 7 years');
+  const [formAge, setFormAge] = useState('above_7');
   const [formCity, setFormCity] = useState('');
   const [formState, setFormState] = useState('FCT');
   const [isStatePickerVisible, setIsStatePickerVisible] = useState(false);
+
+  // Google Places Autocomplete states
+  const [addressPredictions, setAddressPredictions] = useState<PlacePrediction[]>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [formLatitude, setFormLatitude] = useState<number | undefined>(undefined);
+  const [formLongitude, setFormLongitude] = useState<number | undefined>(undefined);
+  const [formPlaceId, setFormPlaceId] = useState<string>('');
+
+  useEffect(() => {
+    dispatch(fetchPropertyTypes())
+      .unwrap()
+      .then((res: any) => {
+        const list = Array.isArray(res) ? res : res?.data;
+        if (Array.isArray(list) && list.length > 0) {
+          setPropertyTypes(list);
+        }
+      })
+      .catch(() => {});
+
+    dispatch(fetchPropertyAges())
+      .unwrap()
+      .then((res: any) => {
+        const list = Array.isArray(res) ? res : res?.data;
+        if (Array.isArray(list) && list.length > 0) {
+          setPropertyAges(list);
+        }
+      })
+      .catch(() => {});
+  }, [dispatch]);
 
   // Unit configurations
   const [unitType, setUnitType] = useState<'single' | 'multiple'>('single');
@@ -161,23 +208,6 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
 
     setIsSubmitting(true);
 
-    const propertyTypeMap: Record<string, string> = {
-      'Single Family Home': 'residential',
-      'Apartment': 'residential',
-      'Duplex': 'residential',
-      'Commercial': 'commercial',
-      'Industrial': 'industrial',
-      'Land': 'land',
-      'Other': 'other',
-    };
-
-    const propertyAgeMap: Record<string, string> = {
-      'Below 1 year': 'below_1',
-      '1 - 3 years': '1_to_3',
-      '3 - 7 years': '3_to_7',
-      'Above 7 years': 'above_7',
-    };
-
     const unitsPayload =
       unitType === 'single'
         ? [
@@ -198,14 +228,17 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
           }));
 
     const payload: CreatePropertyPayload = {
-      propertyType: propertyTypeMap[formType] || 'other',
-      customPropertyType: formType,
+      propertyType: formType,
+      customPropertyType: formType === 'other' ? (customPropertyTypeInput.trim() || 'Other') : undefined,
       propertyName: formName.trim(),
       streetAddress: formAddress.trim(),
       apartmentSuiteFloor: formUnit.trim() || undefined,
       city: formCity.trim(),
       state: formState.trim(),
-      propertyAge: propertyAgeMap[formAge] || 'above_7',
+      latitude: formLatitude || 9.0765,
+      longitude: formLongitude || 7.3986,
+      placeId: formPlaceId || `place-${Date.now()}`,
+      propertyAge: formAge,
       hasProofOfOwnership: true,
       hasProofOfInsurance: false,
       units: unitsPayload,
@@ -281,26 +314,29 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
             <View style={styles.formFieldContainer}>
               <Text style={styles.fieldLabel}>Select Property Type <Text style={styles.asterisk}>*</Text></Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeSelectorRow}>
-                {[
-                  { label: 'Townhome', icon: 'house.circle' },
-                  { label: 'Single Family Home', icon: 'house.fill' },
-                  { label: 'Apartment', icon: 'building.2.fill' },
-                  { label: 'Duplex/Triplex', icon: 'building' },
-                  { label: 'Others', icon: 'building.columns' },
-                ].map((item) => {
-                  const isActive = formType === item.label;
+                {propertyTypes.map((item) => {
+                  const isActive = formType === item.value;
+                  const iconMap: Record<string, string> = {
+                    townhome: 'house.circle',
+                    single_family: 'house.fill',
+                    apartment: 'building.2.fill',
+                    duplex_triplex: 'building',
+                    other: 'building.columns',
+                  };
+                  const icon = iconMap[item.value] || 'building.columns';
+
                   return (
                     <TouchableOpacity
-                      key={item.label}
+                      key={item.value}
                       style={[
                         styles.typeCard,
                         isActive ? styles.typeCardActive : styles.typeCardInactive,
                       ]}
-                      onPress={() => setFormType(item.label)}
+                      onPress={() => setFormType(item.value)}
                       activeOpacity={0.7}
                     >
                       <SymbolView
-                        name={{ ios: item.icon as any, android: 'home', web: 'home' }}
+                        name={{ ios: icon as any, android: 'home', web: 'home' }}
                         size={20}
                         tintColor={isActive ? '#D87C24' : '#8A8D93'}
                         weight={isActive ? 'bold' : 'regular'}
@@ -314,6 +350,20 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
               </ScrollView>
             </View>
 
+            {/* Custom Property Type Input (shown only if 'other' is selected) */}
+            {formType === 'other' && (
+              <View style={styles.formFieldContainer}>
+                <Text style={styles.fieldLabel}>Specify Property Type <Text style={styles.asterisk}>*</Text></Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Enter property type (e.g. Commercial, Warehouse)"
+                  placeholderTextColor="#A0A5AB"
+                  value={customPropertyTypeInput}
+                  onChangeText={setCustomPropertyTypeInput}
+                />
+              </View>
+            )}
+
             {/* Property Name */}
             <View style={styles.formFieldContainer}>
               <Text style={styles.fieldLabel}>Property Name <Text style={styles.asterisk}>*</Text></Text>
@@ -326,16 +376,65 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
               />
             </View>
 
-            {/* Street Address */}
-            <View style={styles.formFieldContainer}>
+            {/* Street Address with Google Places Autocomplete */}
+            <View style={[styles.formFieldContainer, { zIndex: 20 }]}>
               <Text style={styles.fieldLabel}>Street Address <Text style={styles.asterisk}>*</Text></Text>
-              <TextInput
-                style={styles.formInput}
-                placeholder="Enter Property Address"
-                placeholderTextColor="#A0A5AB"
-                value={formAddress}
-                onChangeText={setFormAddress}
-              />
+              <View style={styles.addressInputWrapper}>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Enter Property Address (e.g. Aminu Kano Cres, Wuse)"
+                  placeholderTextColor="#A0A5AB"
+                  value={formAddress}
+                  onChangeText={(text) => {
+                    setFormAddress(text);
+                    if (text.trim().length >= 3) {
+                      setIsSearchingAddress(true);
+                      getAddressPredictions(text).then((res) => {
+                        setAddressPredictions(res);
+                        setIsSearchingAddress(false);
+                      });
+                    } else {
+                      setAddressPredictions([]);
+                    }
+                  }}
+                />
+                {isSearchingAddress && (
+                  <ActivityIndicator size="small" color="#D87C24" style={styles.addressSearchingSpinner} />
+                )}
+              </View>
+
+              {/* Autocomplete Predictions Dropdown */}
+              {addressPredictions.length > 0 && (
+                <View style={styles.predictionsDropdown}>
+                  {addressPredictions.map((pred) => (
+                    <TouchableOpacity
+                      key={pred.placeId}
+                      style={styles.predictionRow}
+                      onPress={async () => {
+                        setFormAddress(pred.mainText || pred.description);
+                        setAddressPredictions([]);
+                        const details = await getPlaceDetails(pred);
+                        if (details.city) setFormCity(details.city);
+                        if (details.state) setFormState(details.state);
+                        if (details.latitude) setFormLatitude(details.latitude);
+                        if (details.longitude) setFormLongitude(details.longitude);
+                        if (details.placeId) setFormPlaceId(details.placeId);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <SymbolView
+                        name={{ ios: 'mappin.and.ellipse', android: 'location_on', web: 'location_on' }}
+                        size={16}
+                        tintColor="#D87C24"
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.predictionMainText}>{pred.mainText}</Text>
+                        <Text style={styles.predictionSubText}>{pred.secondaryText || pred.description}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* Apartment Unit Suite */}
@@ -401,25 +500,20 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
             <View style={styles.formFieldContainer}>
               <Text style={styles.fieldLabel}>Age of Property</Text>
               <View style={styles.ageGrid}>
-                {[
-                  'Less than 2 years',
-                  'Less than 5 years',
-                  'Less than 7 years',
-                  'Above 7 years',
-                ].map((age) => {
-                  const isActive = formAge === age;
+                {propertyAges.map((item) => {
+                  const isActive = formAge === item.value;
                   return (
                     <TouchableOpacity
-                      key={age}
+                      key={item.value}
                       style={[
                         styles.ageBtn,
                         isActive ? styles.ageBtnActive : styles.ageBtnInactive,
                       ]}
-                      onPress={() => setFormAge(age)}
+                      onPress={() => setFormAge(item.value)}
                       activeOpacity={0.7}
                     >
                       <Text style={[styles.ageBtnText, isActive ? styles.ageBtnTextActive : styles.ageBtnTextInactive]}>
-                        {age}
+                        {item.label}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -1305,11 +1399,59 @@ const styles = StyleSheet.create({
   },
   plusSymbolBottom: {
     position: 'absolute',
-    bottom: -6,
-    right: -8,
+    bottom: 2,
+    left: -8,
     fontSize: 16,
     fontWeight: 'bold',
     color: '#B57428',
+  },
+
+  // Google Places Autocomplete styles
+  addressInputWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  addressSearchingSpinner: {
+    position: 'absolute',
+    right: 14,
+  },
+  predictionsDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#EBE6DC',
+    marginTop: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 999,
+    maxHeight: 200,
+  },
+  predictionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F3EF',
+    gap: 10,
+  },
+  predictionMainText: {
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 14,
+    color: '#1A1C1E',
+    fontWeight: '600',
+  },
+  predictionSubText: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 12,
+    color: '#8A8D93',
   },
   clickToBrowseText: {
     fontFamily: 'Satoshi-Bold',
