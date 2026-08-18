@@ -44,7 +44,8 @@
         {
           "photosPermission": "The app accesses your photos to let you upload property and agreement images."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

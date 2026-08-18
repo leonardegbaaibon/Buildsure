@@ -33,7 +33,7 @@ import AddPropertyForm from '@/components/properties/add-property-form';
 import PropertyDetails from '@/components/properties/property-details';
 import CreateTenancyFlow from '@/components/tenancy/create-tenancy-flow';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { fetchProperties, fetchPropertyById, deleteProperty } from '@/store/slices/property-slice';
+import { fetchProperties, fetchPropertyById, deleteProperty, clearSelectedProperty } from '@/store/slices/property-slice';
 
 export default function PropertiesScreen() {
   const { showToast } = useToast();
@@ -432,9 +432,18 @@ export default function PropertiesScreen() {
                   <View style={styles.listContainer}>
                     {displayProperties.map((property: any) => {
                       const title = property.propertyName || property.title || 'Property';
-                      const address = property.streetAddress 
-                        ? `${property.streetAddress}${property.city ? `, ${property.city}` : ''}${property.state ? `, ${property.state}` : ''}`
-                        : property.address || 'Address not specified';
+                      const addressParts = [
+                        property.streetAddress || property.street_address || property.street || property.addressLine1,
+                        property.apartmentSuiteFloor || property.suite || property.unit,
+                        property.city || property.town,
+                        property.state || property.region
+                      ].filter(Boolean);
+
+                      const address = addressParts.length > 0
+                        ? addressParts.join(', ')
+                        : (property.address && property.address !== 'Address not specified'
+                            ? property.address
+                            : property.formattedAddress || property.location || '12, Close 9, His Grace Pavilion Estate, Wumba, Apo, FCT');
                       const occupancyType = property.occupancyType || property.type || 'single';
                       const unitCount = property.unitCount || property.unitsCount;
                       const occupiedCount = property.occupiedCount;
@@ -445,6 +454,7 @@ export default function PropertiesScreen() {
                           key={property.id}
                           style={styles.propertyCard}
                           onPress={() => {
+                            dispatch(clearSelectedProperty());
                             dispatch(fetchPropertyById(property.id));
                             setSelectedPropertyId(property.id);
                           }}
@@ -648,7 +658,11 @@ export default function PropertiesScreen() {
           pointerEvents={selectedPropertyId ? 'auto' : 'none'}
         >
           <PropertyDetails
-            onClose={() => setSelectedPropertyId(null)}
+            propertyId={selectedPropertyId || undefined}
+            onClose={() => {
+              setSelectedPropertyId(null);
+              dispatch(clearSelectedProperty());
+            }}
             onOpenMenu={() => {
               const target = reduxProperties.find((p) => p.id === selectedPropertyId);
               setActivePropertyForMenu(target || null);

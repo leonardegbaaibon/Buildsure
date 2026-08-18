@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -77,6 +77,31 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
   const [formLatitude, setFormLatitude] = useState<number | undefined>(undefined);
   const [formLongitude, setFormLongitude] = useState<number | undefined>(undefined);
   const [formPlaceId, setFormPlaceId] = useState<string>('');
+  const addressSearchTimer = useRef<any>(null);
+
+  const handleAddressChange = (text: string) => {
+    setFormAddress(text);
+    if (addressSearchTimer.current) {
+      clearTimeout(addressSearchTimer.current);
+    }
+
+    if (text.trim().length >= 2) {
+      setIsSearchingAddress(true);
+      addressSearchTimer.current = setTimeout(() => {
+        getAddressPredictions(text)
+          .then((res) => {
+            setAddressPredictions(res);
+            setIsSearchingAddress(false);
+          })
+          .catch(() => {
+            setIsSearchingAddress(false);
+          });
+      }, 250);
+    } else {
+      setAddressPredictions([]);
+      setIsSearchingAddress(false);
+    }
+  };
 
   useEffect(() => {
     dispatch(fetchPropertyTypes())
@@ -304,7 +329,12 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
       {step === 1 ? (
         /* Step 1: Property Details Form */
         <>
-          <ScrollView style={styles.body} showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollContent}>
+          <ScrollView
+            style={styles.body}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.formScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.formTitleContainer}>
               <Text style={styles.formMainTitle}>Property Details</Text>
               <Text style={styles.formSubtitle}>Add the details of your property below</Text>
@@ -385,18 +415,7 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
                   placeholder="Enter Property Address (e.g. Aminu Kano Cres, Wuse)"
                   placeholderTextColor="#A0A5AB"
                   value={formAddress}
-                  onChangeText={(text) => {
-                    setFormAddress(text);
-                    if (text.trim().length >= 3) {
-                      setIsSearchingAddress(true);
-                      getAddressPredictions(text).then((res) => {
-                        setAddressPredictions(res);
-                        setIsSearchingAddress(false);
-                      });
-                    } else {
-                      setAddressPredictions([]);
-                    }
-                  }}
+                  onChangeText={handleAddressChange}
                 />
                 {isSearchingAddress && (
                   <ActivityIndicator size="small" color="#D87C24" style={styles.addressSearchingSpinner} />
@@ -405,7 +424,13 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
 
               {/* Autocomplete Predictions Dropdown */}
               {addressPredictions.length > 0 && (
-                <View style={styles.predictionsDropdown}>
+                <ScrollView
+                  style={styles.predictionsDropdown}
+                  contentContainerStyle={styles.predictionsDropdownContent}
+                  nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={true}
+                >
                   {addressPredictions.map((pred) => (
                     <TouchableOpacity
                       key={pred.placeId}
@@ -433,7 +458,7 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
                       </View>
                     </TouchableOpacity>
                   ))}
-                </View>
+                </ScrollView>
               )}
             </View>
 
@@ -1427,11 +1452,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-    zIndex: 999,
-    maxHeight: 200,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 9999,
+    maxHeight: 210,
+  },
+  predictionsDropdownContent: {
+    paddingVertical: 2,
   },
   predictionRow: {
     flexDirection: 'row',

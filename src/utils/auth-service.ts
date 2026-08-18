@@ -3,6 +3,7 @@ import { storage } from './storage';
 import { setUserName, setUserPhone } from './user-store';
 
 const TOKEN_KEY = 'buildsure_auth_token';
+const REFRESH_TOKEN_KEY = 'buildsure_refresh_token';
 const USER_KEY = 'buildsure_auth_user';
 
 export interface UserProfile {
@@ -24,10 +25,12 @@ export interface SignUpPayload {
 export interface SignInResponse {
   token?: string;
   accessToken?: string;
+  refreshToken?: string;
   user?: UserProfile;
   data?: {
     token?: string;
     accessToken?: string;
+    refreshToken?: string;
     user?: UserProfile;
   };
 }
@@ -54,6 +57,17 @@ export interface VerifyResetCodeResponse {
     resetToken?: string;
     token?: string;
   };
+}
+
+export interface RefreshTokenResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    accessToken: string;
+    refreshToken?: string;
+  };
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 export const authService = {
@@ -84,7 +98,18 @@ export const authService = {
    * 2. Verify Phone API
    */
   async verifyPhone(userId: string, code: string): Promise<any> {
-    return await api.post('/auth/verify-phone', { userId, code });
+    const res = await api.post<any>('/auth/verify-phone', { userId, code });
+    const token = res.token || res.accessToken || res.data?.token || res.data?.accessToken;
+    const refreshToken = res.refreshToken || res.data?.refreshToken;
+
+    if (token) {
+      await storage.setItem(TOKEN_KEY, token);
+      setStagingBearerToken(token);
+    }
+    if (refreshToken) {
+      await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
+    return res;
   },
 
   /**
@@ -139,6 +164,10 @@ export const authService = {
       res.accessToken || 
       res.data?.token || 
       res.data?.accessToken;
+
+    const refreshToken = 
+      res.refreshToken || 
+      res.data?.refreshToken;
       
     // Extract user profile
     const user = res.user || res.data?.user;
@@ -149,6 +178,9 @@ export const authService = {
     
     // Save credentials to local persistent storage
     await storage.setItem(TOKEN_KEY, token);
+    if (refreshToken) {
+      await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
     setStagingBearerToken(token);
     
     const profile: UserProfile = user || {
@@ -180,6 +212,10 @@ export const authService = {
       res.accessToken || 
       res.data?.token || 
       res.data?.accessToken;
+
+    const refreshToken = 
+      res.refreshToken || 
+      res.data?.refreshToken;
       
     const user = res.user || res.data?.user;
     
@@ -188,6 +224,10 @@ export const authService = {
     }
     
     await storage.setItem(TOKEN_KEY, token);
+    if (refreshToken) {
+      await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
+    setStagingBearerToken(token);
     
     const profile: UserProfile = user || {
       id: '',
@@ -217,6 +257,10 @@ export const authService = {
       res.accessToken || 
       res.data?.token || 
       res.data?.accessToken;
+
+    const refreshToken = 
+      res.refreshToken || 
+      res.data?.refreshToken;
       
     const user = res.user || res.data?.user;
     
@@ -225,6 +269,10 @@ export const authService = {
     }
     
     await storage.setItem(TOKEN_KEY, token);
+    if (refreshToken) {
+      await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
+    setStagingBearerToken(token);
     
     const profile: UserProfile = user || {
       id: '',
@@ -248,6 +296,64 @@ export const authService = {
    */
   async getSessionToken(): Promise<string | null> {
     return await storage.getItem(TOKEN_KEY);
+  },
+
+  /**
+   * Retrieve active refresh token
+   */
+  async getRefreshToken(): Promise<string | null> {
+    return await storage.getItem(REFRESH_TOKEN_KEY);
+  },
+
+  /**
+   * Refresh session using refreshToken
+   */
+  async refreshSession(): Promise<string | null> {
+    const refreshToken = await storage.getItem(REFRESH_TOKEN_KEY);
+    if (!refreshToken) {
+      if (__DEV__) {
+        console.log('[AuthService] No refresh token found in storage.');
+      }
+      return null;
+    }
+
+    try {
+      if (__DEV__) {
+        console.log('[AuthService] Refreshing access token with refresh token...');
+      }
+
+      const res = await fetch('https://buildsure-server-770307294180.europe-west1.run.app/api/v1/auth/refresh-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      const responseData = await res.json().catch(() => ({}));
+
+      if (__DEV__) {
+        console.log(`[AuthService] Refresh Token Response [${res.status}]:`, responseData);
+      }
+
+      const newAccessToken = responseData?.data?.accessToken || responseData?.accessToken;
+      const newRefreshToken = responseData?.data?.refreshToken || responseData?.refreshToken || refreshToken;
+
+      if (res.ok && newAccessToken) {
+        await storage.setItem(TOKEN_KEY, newAccessToken);
+        await storage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
+        setStagingBearerToken(newAccessToken);
+        return newAccessToken;
+      }
+
+      return null;
+    } catch (err) {
+      if (__DEV__) {
+        console.error('[AuthService] Refresh session failed:', err);
+      }
+      return null;
+    }
   },
 
   /**
@@ -282,7 +388,9 @@ export const authService = {
    */
   async signOut(): Promise<void> {
     await storage.removeItem(TOKEN_KEY);
+    await storage.removeItem(REFRESH_TOKEN_KEY);
     await storage.removeItem(USER_KEY);
+    setStagingBearerToken('bearerToken');
     setUserName('');
     setUserPhone('');
   }

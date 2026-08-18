@@ -96,3 +96,53 @@ export interface CreatePropertyPayload {
   units?: Omit<PropertyUnit, 'id' | 'propertyId'>[];
   images?: string[];
 }
+
+export interface UnitTenantProfile {
+  name: string;
+  email: string;
+  phoneNumber?: string;
+  status: string;
+}
+
+export interface UnitCurrentTenancy {
+  id: string;
+  durationYears: number;
+  moveInDate: string;
+  expiryDate: string;
+  daysRemaining: number;
+  tenancyBalance?: number;
+  rentAmount: number;
+  tenant: UnitTenantProfile;
+}
+
+export interface UnitPastTenancy {
+  id: string;
+  moveInDate: string;
+  expiryDate: string;
+  endedStatus: string;
+  rating?: number;
+  review?: string;
+  tenant: UnitTenantProfile;
+}
+
+export interface EnrichedUnit {
+  id: string;
+  unitIdentifier: string;
+  occupied?: boolean;
+  isOccupied?: boolean;
+  bedrooms: number;
+  bathrooms: number;
+  monthlyRent?: number;
+}
+
+export interface UnitDetailResponseData {
+  unit: EnrichedUnit;
+  currentTenancy: UnitCurrentTenancy | null;
+  pastTenancies: UnitPastTenancy[];
+}
+
+export interface UnitDetailApiResponse {
+  success: boolean;
+  message: string;
+  data: UnitDetailResponseData;
+}

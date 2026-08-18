@@ -36,6 +36,71 @@ export class BuildsureApiError extends Error {
 interface RequestOptions extends RequestInit {
   bodyData?: any;
   userToken?: string | null;
+  _isRetry?: boolean;
+}
+
+let refreshPromise: Promise<string | null> | null = null;
+
+/**
+ * Execute Token Refresh (Singleton Promise to prevent duplicate refresh calls)
+ */
+export async function executeRefreshToken(): Promise<string | null> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = await storage.getItem('buildsure_refresh_token');
+      if (!refreshToken) {
+        if (__DEV__) {
+          console.warn('[API Client] No refresh token available in storage.');
+        }
+        return null;
+      }
+
+      const refreshUrl = `${BASE_URL}/auth/refresh-token`;
+      if (__DEV__) {
+        console.log(`[API Request] POST (Auto Refresh Token) -> ${refreshUrl}`);
+      }
+
+      const res = await fetch(refreshUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      const responseData = await res.json().catch(() => ({}));
+
+      if (__DEV__) {
+        console.log(`[API Response] ${res.status} <- ${refreshUrl}`, responseData);
+      }
+
+      const newAccessToken = responseData?.data?.accessToken || responseData?.accessToken;
+      const newRefreshToken = responseData?.data?.refreshToken || responseData?.refreshToken || refreshToken;
+
+      if (res.ok && newAccessToken) {
+        await storage.setItem('buildsure_auth_token', newAccessToken);
+        await storage.setItem('buildsure_refresh_token', newRefreshToken);
+        setStagingBearerToken(newAccessToken);
+        return newAccessToken;
+      }
+
+      return null;
+    } catch (err) {
+      if (__DEV__) {
+        console.error('[API Client] Token refresh failed:', err);
+      }
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 /**
@@ -114,6 +179,31 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
       console.log(`[API Response] ${response.status} <- ${url}`, responseData);
     }
 
+    // Handle 401 Unauthorized / Token Expiration by attempting automatic refresh
+    if (
+      response.status === 401 &&
+      !options._isRetry &&
+      !endpoint.includes('/auth/refresh-token') &&
+      !endpoint.includes('/auth/signin') &&
+      !endpoint.includes('/auth/signup')
+    ) {
+      if (__DEV__) {
+        console.log(`[API 401 Interceptor] Access token expired on ${endpoint}. Refreshing token...`);
+      }
+
+      const refreshedAccessToken = await executeRefreshToken();
+      if (refreshedAccessToken) {
+        if (__DEV__) {
+          console.log(`[API 401 Interceptor] Token refreshed! Retrying ${endpoint}...`);
+        }
+        return await request<T>(endpoint, {
+          ...options,
+          userToken: refreshedAccessToken,
+          _isRetry: true,
+        });
+      }
+    }
+
     if (!response.ok) {
       // Extract detailed error message from response body
       const errorMessage = 
@@ -147,7 +237,12 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
  * XMLHttpRequest-based FormData wrapper to bypass fetch Request wrapper
  * issues with React Native custom FormData objects.
  */
-export function uploadForm<T>(endpoint: string, formData: FormData, token?: string | null): Promise<T> {
+export function uploadForm<T>(
+  endpoint: string,
+  formData: FormData,
+  token?: string | null,
+  isRetry: boolean = false
+): Promise<T> {
   return new Promise(async (resolve, reject) => {
     try {
       const url = `${BASE_URL}${endpoint}`;
@@ -170,7 +265,7 @@ export function uploadForm<T>(endpoint: string, formData: FormData, token?: stri
       }
       xhr.setRequestHeader('Accept', 'application/json');
 
-      xhr.onload = () => {
+      xhr.onload = async () => {
         let responseData: any = {};
         try {
           responseData = JSON.parse(xhr.responseText);
@@ -183,6 +278,25 @@ export function uploadForm<T>(endpoint: string, formData: FormData, token?: stri
             console.log(`[API Response] ${xhr.status} <- ${url}`, responseData);
           }
           resolve(responseData as T);
+        } else if (xhr.status === 401 && !isRetry && !endpoint.includes('/auth/refresh-token')) {
+          if (__DEV__) {
+            console.log(`[API 401 Interceptor FormData] Token expired on ${endpoint}. Refreshing...`);
+          }
+          const refreshedAccessToken = await executeRefreshToken();
+          if (refreshedAccessToken) {
+            try {
+              const retryRes = await uploadForm<T>(endpoint, formData, refreshedAccessToken, true);
+              resolve(retryRes);
+            } catch (retryErr) {
+              reject(retryErr);
+            }
+          } else {
+            const errorMessage =
+              responseData.message ||
+              responseData.error ||
+              `Request failed with status ${xhr.status}`;
+            reject(new BuildsureApiError(errorMessage, xhr.status, responseData));
+          }
         } else {
           const errorMessage =
             responseData.message ||

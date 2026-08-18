@@ -28,6 +28,7 @@ export default function HomeScreen() {
   const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
   const [isCreateTenancyVisible, setIsCreateTenancyVisible] = useState(false);
   const [isUploadVisible, setIsUploadVisible] = useState(false);
+  const [activeBannerTenancyId, setActiveBannerTenancyId] = useState<string | undefined>(undefined);
 
   // Compute display name from API or local user store fallback
   const apiUserName = `${data.user.firstName || ''} ${data.user.lastName || ''}`.trim();
@@ -104,7 +105,10 @@ export default function HomeScreen() {
               key={banner.tenancyId || index}
               style={styles.uploadNudgeContainer} 
               activeOpacity={0.9}
-              onPress={() => setIsUploadVisible(true)}
+              onPress={() => {
+                setActiveBannerTenancyId(banner.tenancyId);
+                setIsUploadVisible(true);
+              }}
             >
               <View style={styles.uploadNudgeIconContainer}>
                 <SymbolView
@@ -188,6 +192,7 @@ export default function HomeScreen() {
       {/* Upload Signed Contract Modal Overlay */}
       <UploadContractFlow
         visible={isUploadVisible}
+        tenancyId={activeBannerTenancyId}
         onClose={() => setIsUploadVisible(false)}
         onComplete={() => {
           setIsUploadVisible(false);

@@ -5,6 +5,8 @@ import {
   PropertyHeaderStats,
   PropertiesApiResponse,
   CreatePropertyPayload,
+  UnitDetailResponseData,
+  UnitDetailApiResponse,
 } from '@/types/property';
 import { api } from '@/utils/api-client';
 import { authService } from '@/utils/auth-service';
@@ -13,6 +15,9 @@ export interface PropertyState {
   properties: (Property | PropertyListItem)[];
   headerStats: PropertyHeaderStats | null;
   selectedProperty: Property | null;
+  selectedUnitDetail: UnitDetailResponseData | null;
+  unitStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
+  propertyDetailStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
   status: 'idle' | 'loading' | 'succeeded' | 'failed';
   error: string | null;
 }
@@ -21,6 +26,9 @@ const initialState: PropertyState = {
   properties: [],
   headerStats: null,
   selectedProperty: null,
+  selectedUnitDetail: null,
+  unitStatus: 'idle',
+  propertyDetailStatus: 'idle',
   status: 'idle',
   error: null,
 };
@@ -60,6 +68,24 @@ export const fetchPropertyById = createAsyncThunk<Property, string>(
       return response.data || (response as unknown as Property);
     } catch (err: any) {
       return rejectWithValue(err.message || 'Failed to fetch property details');
+    }
+  }
+);
+
+export const fetchUnitDetail = createAsyncThunk<
+  UnitDetailResponseData,
+  { propertyId: string; unitId: string }
+>(
+  'properties/fetchUnitDetail',
+  async ({ propertyId, unitId }, { rejectWithValue }) => {
+    try {
+      const response = await api.get<UnitDetailApiResponse | any>(`/properties/${propertyId}/units/${unitId}`);
+      if (response && response.data) {
+        return response.data;
+      }
+      return response as UnitDetailResponseData;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Failed to fetch unit details');
     }
   }
 );
@@ -215,6 +241,17 @@ export const propertySlice = createSlice({
     clearPropertyError: (state) => {
       state.error = null;
     },
+    setSelectedUnitDetail: (state, action: PayloadAction<UnitDetailResponseData | null>) => {
+      state.selectedUnitDetail = action.payload;
+    },
+    clearUnitDetail: (state) => {
+      state.selectedUnitDetail = null;
+      state.unitStatus = 'idle';
+    },
+    clearSelectedProperty: (state) => {
+      state.selectedProperty = null;
+      state.propertyDetailStatus = 'idle';
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -235,8 +272,28 @@ export const propertySlice = createSlice({
         state.error = action.payload as string;
       })
       // Fetch property by id
+      .addCase(fetchPropertyById.pending, (state) => {
+        state.propertyDetailStatus = 'loading';
+        state.selectedProperty = null;
+      })
       .addCase(fetchPropertyById.fulfilled, (state, action) => {
+        state.propertyDetailStatus = 'succeeded';
         state.selectedProperty = action.payload;
+      })
+      .addCase(fetchPropertyById.rejected, (state) => {
+        state.propertyDetailStatus = 'failed';
+      })
+      // Fetch unit detail
+      .addCase(fetchUnitDetail.pending, (state) => {
+        state.unitStatus = 'loading';
+        state.selectedUnitDetail = null;
+      })
+      .addCase(fetchUnitDetail.fulfilled, (state, action) => {
+        state.unitStatus = 'succeeded';
+        state.selectedUnitDetail = action.payload;
+      })
+      .addCase(fetchUnitDetail.rejected, (state) => {
+        state.unitStatus = 'failed';
       })
       // Create property
       .addCase(createProperty.fulfilled, (state, action) => {
@@ -278,6 +335,13 @@ export const propertySlice = createSlice({
   },
 });
 
-export const { setSelectedProperty, addLocalProperty, clearPropertyError } = propertySlice.actions;
+export const {
+  setSelectedProperty,
+  addLocalProperty,
+  clearPropertyError,
+  setSelectedUnitDetail,
+  clearUnitDetail,
+  clearSelectedProperty,
+} = propertySlice.actions;
 
 export default propertySlice.reducer;
