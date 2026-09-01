@@ -3,9 +3,7 @@ import {
   StyleSheet,
   View,
   Text,
-  Image,
   TouchableOpacity,
-  Dimensions,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,34 +15,34 @@ import Animated, {
   LinearTransition,
 } from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
+import { ApiNotificationItem, NotificationType } from '@/types/notification';
 
-export interface NotificationData {
-  id: string;
-  type: 'value_update' | 'payment_lease';
-  text: string; // The formatted string or HTML style text where we parse bold elements
-  boldSegments: string[]; // List of substrings to bold
-  time: string;
+export interface DisplayNotificationData extends ApiNotificationItem {
+  timeAgo: string;
+  dayGroup: string;
 }
 
 interface NotificationItemProps {
-  item: NotificationData;
+  item: DisplayNotificationData;
   onDelete: (id: string) => void;
+  onPress?: (id: string) => void;
 }
 
-export default function SwipeableNotificationItem({ item, onDelete }: NotificationItemProps) {
+export default function SwipeableNotificationItem({
+  item,
+  onDelete,
+  onPress,
+}: NotificationItemProps) {
   const translateX = useSharedValue(0);
-  const itemHeight = useSharedValue<number | undefined>(undefined);
   const swipeLimit = -80; // Width of the delete button
 
   const panGesture = Gesture.Pan()
-    .activeOffsetX([-10, 10]) // Only trigger for horizontal movements, allowing normal vertical scrolling
+    .activeOffsetX([-10, 10])
     .onUpdate((event) => {
-      // Swipe left only. translationX is negative.
       const nextX = Math.max(swipeLimit - 30, Math.min(0, event.translationX));
       translateX.value = nextX;
     })
     .onEnd((event) => {
-      // If velocity is fast left, or swiped past 50%, snap open. Otherwise, snap closed.
       if (event.velocityX < -500 || translateX.value < swipeLimit * 0.5) {
         translateX.value = withSpring(swipeLimit, { damping: 15 });
       } else {
@@ -57,7 +55,6 @@ export default function SwipeableNotificationItem({ item, onDelete }: Notificati
   }));
 
   const handleDelete = () => {
-    // Snap closed first, then call onDelete
     translateX.value = withSpring(0, { damping: 15 }, (finished) => {
       if (finished) {
         runOnJS(onDelete)(item.id);
@@ -65,32 +62,69 @@ export default function SwipeableNotificationItem({ item, onDelete }: Notificati
     });
   };
 
-  // Render text helper to bold specific terms in the notification body
-  const renderTextWithBolds = (fullText: string, boldSegments: string[]) => {
-    if (!boldSegments || boldSegments.length === 0) {
-      return <Text style={styles.notificationText}>{fullText}</Text>;
+  const handleRowPress = () => {
+    if (onPress) {
+      onPress(item.id);
     }
+  };
 
-    // Split text based on bold terms using a regex
-    const escapedTerms = boldSegments.map(term => term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
-    const regex = new RegExp(`(${escapedTerms.join('|')})`, 'g');
-    const parts = fullText.split(regex);
-
-    return (
-      <Text style={styles.notificationText}>
-        {parts.map((part, index) => {
-          const isBold = boldSegments.includes(part);
-          return (
-            <Text
-              key={index}
-              style={isBold ? styles.boldText : null}
-            >
-              {part}
-            </Text>
-          );
-        })}
-      </Text>
-    );
+  // Helper to render proper icon per notification type
+  const renderTypeIcon = (type: NotificationType) => {
+    switch (type) {
+      case 'rent_due':
+        return (
+          <View style={[styles.iconCircle, { backgroundColor: '#FFF3E0', borderColor: '#FFE0B2' }]}>
+            <SymbolView
+              name={{ ios: 'creditcard.fill', android: 'account_balance_wallet', web: 'account_balance_wallet' }}
+              size={20}
+              tintColor="#D87C24"
+            />
+          </View>
+        );
+      case 'maintenance':
+        return (
+          <View style={[styles.iconCircle, { backgroundColor: '#FEE4E2', borderColor: '#FECDCA' }]}>
+            <SymbolView
+              name={{ ios: 'wrench.and.screwdriver.fill', android: 'build', web: 'build' }}
+              size={20}
+              tintColor="#D92D20"
+            />
+          </View>
+        );
+      case 'lease_renewal':
+      case 'tenancy':
+        return (
+          <View style={[styles.iconCircle, { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
+            <SymbolView
+              name={{ ios: 'doc.badge.arrow.up.fill', android: 'assignment', web: 'assignment' }}
+              size={20}
+              tintColor="#0284C7"
+            />
+          </View>
+        );
+      case 'property':
+      case 'value_update':
+        return (
+          <View style={[styles.iconCircle, { backgroundColor: '#EBFDF2', borderColor: '#A6F4C5' }]}>
+            <SymbolView
+              name={{ ios: 'building.2.fill', android: 'apartment', web: 'apartment' }}
+              size={20}
+              tintColor="#039855"
+            />
+          </View>
+        );
+      case 'system':
+      default:
+        return (
+          <View style={[styles.iconCircle, { backgroundColor: '#FFF4E5', borderColor: '#FFE0B2' }]}>
+            <SymbolView
+              name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+              size={20}
+              tintColor="#D87C24"
+            />
+          </View>
+        );
+    }
   };
 
   return (
@@ -107,8 +141,8 @@ export default function SwipeableNotificationItem({ item, onDelete }: Notificati
           activeOpacity={0.8}
         >
           <SymbolView
-            name={{ ios: 'trash', android: 'delete', web: 'delete' }}
-            size={24}
+            name={{ ios: 'trash.fill', android: 'delete', web: 'delete' }}
+            size={22}
             tintColor="#FFFFFF"
             weight="bold"
           />
@@ -117,35 +151,36 @@ export default function SwipeableNotificationItem({ item, onDelete }: Notificati
 
       {/* Main Swipeable Row Content */}
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.mainRow, animatedRowStyle]}>
-          {/* Left Icon / Thumbnail */}
-          {item.type === 'value_update' ? (
-            <Image
-              source={require('../../../assets/images/apo_wumba.png')}
-              style={styles.thumbnail}
-            />
-          ) : (
-            <View style={styles.profileCircle}>
-              <SymbolView
-                name={{ ios: 'person.fill', android: 'person', web: 'person' }}
-                size={22}
-                tintColor="#D87C24"
-              />
-            </View>
-          )}
+        <Animated.View style={[styles.mainRow, animatedRowStyle, !item.isRead && styles.unreadRow]}>
+          <TouchableOpacity
+            style={styles.touchableContent}
+            activeOpacity={0.8}
+            onPress={handleRowPress}
+          >
+            {/* Left Icon */}
+            {renderTypeIcon(item.type)}
 
-          {/* Text and Time Column */}
-          <View style={styles.contentColumn}>
-            {renderTextWithBolds(item.text, item.boldSegments)}
-            <Text style={styles.timeText}>{item.time}</Text>
-          </View>
+            {/* Text and Time Column */}
+            <View style={styles.contentColumn}>
+              <View style={styles.titleRow}>
+                <Text style={[styles.notificationTitle, !item.isRead && styles.unreadTitle]} numberOfLines={1}>
+                  {item.title || 'Notification'}
+                </Text>
+                {!item.isRead && <View style={styles.unreadDot} />}
+              </View>
+
+              <Text style={styles.notificationMessage} numberOfLines={3}>
+                {item.message}
+              </Text>
+
+              <Text style={styles.timeText}>{item.timeAgo}</Text>
+            </View>
+          </TouchableOpacity>
         </Animated.View>
       </GestureDetector>
     </Animated.View>
   );
 }
-
-const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
@@ -154,51 +189,67 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEFAF4',
   },
   mainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
     backgroundColor: '#FEFAF4',
     borderBottomWidth: 1,
     borderBottomColor: '#EBE6DC',
     zIndex: 2,
   },
-  thumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#EBE6DC',
+  unreadRow: {
+    backgroundColor: '#FFFDF9',
   },
-  profileCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFF3E0',
+  touchableContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#FFE0B2',
+    marginTop: 2,
   },
   contentColumn: {
     flex: 1,
-    marginLeft: 16,
+    marginLeft: 14,
     gap: 4,
   },
-  notificationText: {
-    fontFamily: 'Satoshi-Regular',
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  notificationTitle: {
+    fontFamily: 'Satoshi-Bold',
     fontSize: 14,
     color: '#1A1C1E',
-    lineHeight: 20,
-  },
-  boldText: {
-    fontFamily: 'Satoshi-Bold',
     fontWeight: '700',
+    flex: 1,
+  },
+  unreadTitle: {
     color: '#D87C24',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D87C24',
+  },
+  notificationMessage: {
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 18,
   },
   timeText: {
     fontFamily: 'Satoshi-Regular',
-    fontSize: 12,
+    fontSize: 11,
     color: '#8A8D93',
+    marginTop: 2,
   },
   deleteButtonContainer: {
     position: 'absolute',
@@ -213,7 +264,7 @@ const styles = StyleSheet.create({
   deleteButton: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#FF3B30', // Red background
+    backgroundColor: '#F04438',
     justifyContent: 'center',
     alignItems: 'center',
   },

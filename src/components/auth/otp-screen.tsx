@@ -5,7 +5,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   Modal,
   Platform,
   KeyboardAvoidingView,
@@ -19,6 +18,7 @@ import { BackButton } from './back-button';
 import { PhoneIllustration } from './phone-illustration';
 import { authService } from '@/utils/auth-service';
 import { useToast } from '@/components/ui/toast';
+import { AppScreen } from '@/components/ui/app-screen';
 
 interface OtpScreenProps {
   phoneNumber: string;
@@ -103,7 +103,7 @@ export default function OtpScreen({ phoneNumber, userId, onBack, onConfirm }: Ot
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppScreen edges={['top', 'bottom', 'left', 'right']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.contentContainer}
@@ -215,7 +215,7 @@ export default function OtpScreen({ phoneNumber, userId, onBack, onConfirm }: Ot
           <Text style={styles.sheetButtonText}>Proceed to sign in</Text>
         </TouchableOpacity>
       </AppBottomSheet>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 

@@ -9,8 +9,8 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Platform,
-  SafeAreaView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 import { SocialLoginButton } from './social-login-button';
 
@@ -45,6 +45,8 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
     onSignUp({ firstName, lastName, email, password });
   };
 
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.container}>
       <ImageBackground
@@ -54,12 +56,12 @@ export default function SignUpScreen({ onSignUp, onLoginPress }: SignUpScreenPro
       >
         <View style={styles.headerOverlay} />
 
-        <SafeAreaView style={styles.headerContent}>
+        <View style={[styles.headerContent, { paddingTop: Math.max(insets.top, 44) }]}>
           <Text style={styles.headerTitle}>
             Get Started with {'\n'}
             <Text style={styles.brandAccent}>Buildsure</Text>
           </Text>
-        </SafeAreaView>
+        </View>
       </ImageBackground>
 
       {/* Main White/Cream Form Sheet */}

@@ -3,7 +3,6 @@ import {
   StyleSheet,
   View,
   Text,
-  SafeAreaView,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -20,6 +19,7 @@ import { setActiveTab } from '@/utils/user-store';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { fetchDocuments, ApiDocument, ApiContract } from '@/store/slices/document-slice';
 import { downloadDocumentAsPdf } from '@/utils/pdf-download-service';
+import { AppScreen } from '@/components/ui/app-screen';
 
 export interface UnifiedDocumentItem {
   id: string;
@@ -310,7 +310,7 @@ export default function DocumentsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppScreen edges={['top', 'left', 'right']}>
       {/* Header bar */}
       <View style={styles.header}>
         <BackButton onPress={handleBack} />
@@ -412,7 +412,7 @@ export default function DocumentsScreen() {
           mimeType={selectedDoc.mimeType}
         />
       )}
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 

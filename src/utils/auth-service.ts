@@ -9,9 +9,13 @@ const USER_KEY = 'buildsure_auth_user';
 export interface UserProfile {
   id: string;
   firstName: string;
+  middleName?: string | null;
   lastName: string;
   email: string;
   phoneNumber?: string;
+  profilePicture?: string | null;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
 }
 
 export interface SignUpPayload {
@@ -117,6 +121,37 @@ export const authService = {
    */
   async resendPhoneCode(userId: string): Promise<any> {
     return await api.post('/auth/resend-phone-code', { userId });
+  },
+
+  /**
+   * Send Email Verification OTP API
+   */
+  async sendEmailVerificationOtp(email: string): Promise<any> {
+    try {
+      const token = await this.getSessionToken();
+      return await api.post('/auth/send-email-otp', { email }, token);
+    } catch (err) {
+      try {
+        const token = await this.getSessionToken();
+        return await api.post('/auth/verify-email/request', { email }, token);
+      } catch (err2) {
+        const token = await this.getSessionToken();
+        return await api.post('/profile/verify-email/request', { email }, token);
+      }
+    }
+  },
+
+  /**
+   * Verify Email OTP API
+   */
+  async verifyEmailOtp(code: string, email?: string): Promise<any> {
+    try {
+      const token = await this.getSessionToken();
+      return await api.post('/auth/verify-email', { code, email }, token);
+    } catch (err) {
+      const token = await this.getSessionToken();
+      return await api.post('/profile/verify-email', { code, email }, token);
+    }
   },
 
   /**

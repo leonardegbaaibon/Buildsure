@@ -9,9 +9,9 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Platform,
-  SafeAreaView,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 import { authService } from '@/utils/auth-service';
 import ForgotPasswordModal from './forgot-password-modal';
@@ -55,6 +55,8 @@ export default function LoginScreen({ onLogin, onSignUpPress }: LoginScreenProps
     setIsForgotPasswordVisible(true);
   };
 
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.container}>
       <ImageBackground
@@ -64,12 +66,12 @@ export default function LoginScreen({ onLogin, onSignUpPress }: LoginScreenProps
       >
         <View style={styles.headerOverlay} />
 
-        <SafeAreaView style={styles.headerContent}>
+        <View style={[styles.headerContent, { paddingTop: Math.max(insets.top, 44) }]}>
           <Text style={styles.headerTitle}>
             Welcome back to {'\n'}
             <Text style={styles.brandAccent}>Buildsure</Text>
           </Text>
-        </SafeAreaView>
+        </View>
       </ImageBackground>
 
       {/* Main White/Cream Form Sheet */}

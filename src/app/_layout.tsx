@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { useColorScheme, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -15,6 +16,7 @@ import { getFlowState, subscribeFlowState, setFlowState as setGlobalFlowState, A
 import { authService } from '@/utils/auth-service';
 import { storage } from '@/utils/storage';
 import { ToastProvider } from '@/components/ui/toast';
+import { AlertProvider } from '@/components/ui/custom-alert';
 
 import { Provider } from 'react-redux';
 import { store } from '@/store';
@@ -81,61 +83,65 @@ export default function TabLayout() {
 
   return (
     <Provider store={store}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <ToastProvider>
-          <AnimatedSplashOverlay />
-          {flowState === 'onboarding' && (
-            <OnboardingFlow
-              onComplete={async () => {
-                await storage.setItem('has_seen_onboarding', 'true');
-                setFlowState('signup');
-              }}
-            />
-          )}
-          {flowState === 'signup' && (
-            <SignUpScreen
-              onSignUp={(data) => {
-                setSignUpDetails({
-                  firstName: data.firstName,
-                  lastName: data.lastName,
-                  email: data.email,
-                  password: data.password || '',
-                });
-                setFlowState('verify-phone');
-              }}
-              onLoginPress={() => setFlowState('login')}
-            />
-          )}
-          {flowState === 'login' && (
-            <LoginScreen
-              onLogin={() => setFlowState('app')}
-              onSignUpPress={() => setFlowState('signup')}
-            />
-          )}
-          {flowState === 'verify-phone' && (
-            <VerifyPhoneScreen
-              signUpData={signUpDetails}
-              onBack={() => setFlowState('signup')}
-              onVerify={(phone, returnedUserId) => {
-                setSignUpPhone(phone);
-                setUserId(returnedUserId);
-                setFlowState('otp');
-              }}
-            />
-          )}
-          {flowState === 'otp' && (
-            <OtpScreen
-              phoneNumber={signUpPhone}
-              userId={userId}
-              onBack={() => setFlowState('verify-phone')}
-              onConfirm={() => setFlowState('login')}
-            />
-          )}
-          {flowState === 'app' && <AppTabs />}
-        </ToastProvider>
-      </ThemeProvider>
-    </GestureHandlerRootView>
-  </Provider>
+      <SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <ToastProvider>
+              <AlertProvider>
+                <AnimatedSplashOverlay />
+                {flowState === 'onboarding' && (
+                  <OnboardingFlow
+                    onComplete={async () => {
+                      await storage.setItem('has_seen_onboarding', 'true');
+                      setFlowState('signup');
+                    }}
+                  />
+                )}
+                {flowState === 'signup' && (
+                  <SignUpScreen
+                    onSignUp={(data) => {
+                      setSignUpDetails({
+                        firstName: data.firstName,
+                        lastName: data.lastName,
+                        email: data.email,
+                        password: data.password || '',
+                      });
+                      setFlowState('verify-phone');
+                    }}
+                    onLoginPress={() => setFlowState('login')}
+                  />
+                )}
+                {flowState === 'login' && (
+                  <LoginScreen
+                    onLogin={() => setFlowState('app')}
+                    onSignUpPress={() => setFlowState('signup')}
+                  />
+                )}
+                {flowState === 'verify-phone' && (
+                  <VerifyPhoneScreen
+                    signUpData={signUpDetails}
+                    onBack={() => setFlowState('signup')}
+                    onVerify={(phone, returnedUserId) => {
+                      setSignUpPhone(phone);
+                      setUserId(returnedUserId);
+                      setFlowState('otp');
+                    }}
+                  />
+                )}
+                {flowState === 'otp' && (
+                  <OtpScreen
+                    phoneNumber={signUpPhone}
+                    userId={userId}
+                    onBack={() => setFlowState('verify-phone')}
+                    onConfirm={() => setFlowState('login')}
+                  />
+                )}
+                {flowState === 'app' && <AppTabs />}
+              </AlertProvider>
+            </ToastProvider>
+          </ThemeProvider>
+        </GestureHandlerRootView>
+      </SafeAreaProvider>
+    </Provider>
   );
 }

@@ -4,6 +4,7 @@ import authReducer from './slices/auth-slice';
 import dashboardReducer from './slices/dashboard-slice';
 import tenancyReducer from './slices/tenancy-slice';
 import documentReducer from './slices/document-slice';
+import notificationReducer from './slices/notification-slice';
 
 export const store = configureStore({
   reducer: {
@@ -12,6 +13,7 @@ export const store = configureStore({
     dashboard: dashboardReducer,
     tenancy: tenancyReducer,
     documents: documentReducer,
+    notifications: notificationReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

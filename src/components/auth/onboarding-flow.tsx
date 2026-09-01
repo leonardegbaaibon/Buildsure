@@ -6,14 +6,14 @@ import {
   Image,
   useWindowDimensions,
   Pressable,
-  SafeAreaView,
   ScrollView,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  TouchableOpacity,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SwipeButton } from '../swipe-button';
-import { TouchableOpacity } from 'react-native';
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -42,6 +42,7 @@ const steps = [
 ];
 
 export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
+  const insets = useSafeAreaInsets();
   const [currentStep, setCurrentStep] = useState(0);
   const { width, height } = useWindowDimensions();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -115,7 +116,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       </ScrollView>
 
       {/* Fixed Header */}
-      <SafeAreaView style={styles.header} pointerEvents="box-none">
+      <View style={[styles.header, { top: Math.max(insets.top + 8, 48) }]} pointerEvents="box-none">
         <View style={styles.headerRow}>
           <View style={styles.logoContainer}>
             <Image
@@ -126,7 +127,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             <Text style={styles.logoText}>BUILDSURE</Text>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
 
       {/* Fixed Bottom Controls (Dots & Button) */}
       <View style={styles.bottomControls} pointerEvents="box-none">

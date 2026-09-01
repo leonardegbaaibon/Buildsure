@@ -4,9 +4,9 @@ import {
   View,
   Modal,
   TouchableOpacity,
-  SafeAreaView,
 } from 'react-native';
 import { DocumentPreviewCard } from './document-preview-card';
+import { AppScreen } from '@/components/ui/app-screen';
 
 interface PdfPreviewModalProps {
   visible: boolean;
@@ -40,7 +40,7 @@ export function PdfPreviewModal({
           activeOpacity={1}
           onPress={onClose}
         />
-        <SafeAreaView style={styles.modalSafeArea}>
+        <AppScreen edges={['top', 'bottom', 'left', 'right']} style={styles.modalSafeArea} backgroundColor="transparent">
           <View style={styles.modalContent}>
             <DocumentPreviewCard
               filename={documentTitle}
@@ -50,7 +50,7 @@ export function PdfPreviewModal({
               onClose={onClose}
             />
           </View>
-        </SafeAreaView>
+        </AppScreen>
       </View>
     </Modal>
   );

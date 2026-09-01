@@ -4,15 +4,15 @@ import {
   View,
   Text,
   Modal,
-  SafeAreaView,
   TouchableOpacity,
   ScrollView,
   Image,
   TextInput,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { CustomAlert } from '@/components/ui/custom-alert';
+import { AppScreen } from '@/components/ui/app-screen';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { fetchUnitDetail, clearUnitDetail } from '@/store/slices/property-slice';
 import { UnitDetailResponseData } from '@/types/property';
@@ -103,21 +103,21 @@ export function UnitDetails({
 
   const handleSendRenewal = () => {
     if (!canSendRenewal) {
-      Alert.alert(
+      CustomAlert.alert(
         'Renewal Unavailable',
         `Renewal invoices can only be sent within 30 days of lease expiration (${daysRemaining} days remaining).`
       );
       return;
     }
-    Alert.alert('Renewal Invoice Sent', `A renewal invoice has been dispatched to ${currentTenancy?.tenant?.name || 'the tenant'}.`);
+    CustomAlert.alert('Renewal Invoice Sent', `A renewal invoice has been dispatched to ${currentTenancy?.tenant?.name || 'the tenant'}.`);
   };
 
   const handlePromptTenant = () => {
-    Alert.alert('Prompt Sent', `A reminder prompt has been sent to ${currentTenancy?.tenant?.name || 'the tenant'}.`);
+    CustomAlert.alert('Prompt Sent', `A reminder prompt has been sent to ${currentTenancy?.tenant?.name || 'the tenant'}.`);
   };
 
   const handleTerminateTenancy = () => {
-    Alert.alert(
+    CustomAlert.alert(
       'Terminate Tenancy',
       `Are you sure you want to terminate the tenancy for ${displayUnitId}? This action cannot be undone.`,
       [
@@ -126,7 +126,7 @@ export function UnitDetails({
           text: 'Terminate',
           style: 'destructive',
           onPress: () => {
-            Alert.alert('Tenancy Terminated', 'The tenancy agreement has been marked as ended.');
+            CustomAlert.alert('Tenancy Terminated', 'The tenancy agreement has been marked as ended.');
             onClose();
           },
         },
@@ -145,7 +145,7 @@ export function UnitDetails({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
-      <SafeAreaView style={styles.container}>
+      <AppScreen edges={['top', 'bottom', 'left', 'right']}>
         {/* Header Bar */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.backButton} activeOpacity={0.7}>
@@ -602,7 +602,7 @@ export function UnitDetails({
             )}
           </ScrollView>
         )}
-      </SafeAreaView>
+      </AppScreen>
     </Modal>
   );
 }

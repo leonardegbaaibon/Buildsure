@@ -241,14 +241,15 @@ export function uploadForm<T>(
   endpoint: string,
   formData: FormData,
   token?: string | null,
-  isRetry: boolean = false
+  isRetry: boolean = false,
+  method: 'POST' | 'PUT' = 'POST'
 ): Promise<T> {
   return new Promise(async (resolve, reject) => {
     try {
       const url = `${BASE_URL}${endpoint}`;
       const xhr = new XMLHttpRequest();
 
-      xhr.open('POST', url);
+      xhr.open(method, url);
 
       let authToken = token;
       if (!authToken || authToken === 'bearerToken') {
@@ -285,7 +286,7 @@ export function uploadForm<T>(
           const refreshedAccessToken = await executeRefreshToken();
           if (refreshedAccessToken) {
             try {
-              const retryRes = await uploadForm<T>(endpoint, formData, refreshedAccessToken, true);
+              const retryRes = await uploadForm<T>(endpoint, formData, refreshedAccessToken, true, method);
               resolve(retryRes);
             } catch (retryErr) {
               reject(retryErr);
@@ -313,7 +314,7 @@ export function uploadForm<T>(
       };
 
       if (__DEV__) {
-        console.log(`[API Request] POST (FormData via XHR) -> ${url}`);
+        console.log(`[API Request] ${method} (FormData via XHR) -> ${url}`);
       }
 
       xhr.send(formData as any);
@@ -331,10 +332,16 @@ export const api = {
     request<T>(endpoint, { method: 'POST', bodyData, userToken }),
 
   postForm: <T>(endpoint: string, formData: FormData, userToken?: string | null) => 
-    uploadForm<T>(endpoint, formData, userToken),
+    uploadForm<T>(endpoint, formData, userToken, false, 'POST'),
     
   put: <T>(endpoint: string, bodyData?: any, userToken?: string | null) => 
     request<T>(endpoint, { method: 'PUT', bodyData, userToken }),
+
+  putForm: <T>(endpoint: string, formData: FormData, userToken?: string | null) => 
+    uploadForm<T>(endpoint, formData, userToken, false, 'PUT'),
+
+  patch: <T>(endpoint: string, bodyData?: any, userToken?: string | null) => 
+    request<T>(endpoint, { method: 'PATCH', bodyData, userToken }),
     
   delete: <T>(endpoint: string, userToken?: string | null) => 
     request<T>(endpoint, { method: 'DELETE', userToken }),

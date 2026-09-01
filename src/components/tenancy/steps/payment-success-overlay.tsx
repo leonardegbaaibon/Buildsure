@@ -3,12 +3,12 @@ import {
   StyleSheet,
   View,
   Text,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { CustomAlert } from '@/components/ui/custom-alert';
+import { AppScreen } from '@/components/ui/app-screen';
 
 export interface PaymentSuccessOverlayProps {
   visible: boolean;
@@ -42,7 +42,7 @@ export function PaymentSuccessOverlay({
 
   return (
     <View style={styles.paymentSuccessContainer}>
-      <SafeAreaView style={{ flex: 1 }}>
+      <AppScreen edges={['top', 'bottom', 'left', 'right']} style={{ flex: 1 }} backgroundColor="transparent">
         <ScrollView
           contentContainerStyle={styles.paymentSuccessScroll}
           showsVerticalScrollIndicator={false}
@@ -109,7 +109,7 @@ export function PaymentSuccessOverlay({
           <TouchableOpacity
             style={styles.downloadReceiptOutlineBtn}
             onPress={() =>
-              Alert.alert('Receipt Downloaded', 'Your payment receipt has been saved successfully.')
+              CustomAlert.alert('Receipt Downloaded', 'Your payment receipt has been saved successfully.')
             }
             activeOpacity={0.8}
           >
@@ -129,7 +129,7 @@ export function PaymentSuccessOverlay({
             <Text style={styles.goToMyTenancyText}>Go to My Tenancy</Text>
           </TouchableOpacity>
         </ScrollView>
-      </SafeAreaView>
+      </AppScreen>
     </View>
   );
 }

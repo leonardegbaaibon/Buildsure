@@ -5,14 +5,14 @@ import {
   Text,
   Modal,
   TouchableOpacity,
-  SafeAreaView,
   Image,
-  Alert,
   ScrollView,
   ActivityIndicator,
   Share,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { CustomAlert } from '@/components/ui/custom-alert';
+import { AppScreen } from '@/components/ui/app-screen';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
@@ -187,7 +187,7 @@ export default function UploadContractFlow({
       }
     } catch (err) {
       console.log('Error selecting document:', err);
-      Alert.alert('Error', 'An error occurred while selecting the file.');
+      CustomAlert.alert('Error', 'An error occurred while selecting the file.');
     }
   };
 
@@ -195,7 +195,7 @@ export default function UploadContractFlow({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please allow access to your photo library to select contract images.');
+        CustomAlert.alert('Permission Required', 'Please allow access to your photo library to select contract images.');
         return;
       }
 
@@ -238,7 +238,7 @@ export default function UploadContractFlow({
   };
 
   const handleFileSelect = () => {
-    Alert.alert('Upload Signed Contract', 'Select document source:', [
+    CustomAlert.alert('Upload Signed Contract', 'Select document source:', [
       { text: 'Choose from Files (PDF)', onPress: pickDocument },
       { text: 'Choose from Photos (Image)', onPress: pickImage },
       { text: 'Cancel', style: 'cancel' },
@@ -276,7 +276,7 @@ export default function UploadContractFlow({
           ? err
           : err?.message ||
             'Failed to upload signed contract. Please check your connection and try again.';
-      Alert.alert('Upload Failed', errMsg);
+      CustomAlert.alert('Upload Failed', errMsg);
     }
   };
 
@@ -297,7 +297,7 @@ export default function UploadContractFlow({
           ? err
           : err?.message ||
             'Failed to retrieve invoice breakdown. Please check your connection and try again.';
-      Alert.alert('Breakdown Error', errMsg);
+      CustomAlert.alert('Breakdown Error', errMsg);
     }
   };
 
@@ -418,7 +418,7 @@ Settlement Destination: ${selectedDirection === 'wallet' ? 'BuildSure Wallet' : 
 
   return (
     <Modal animationType="slide" visible={visible} onRequestClose={onClose} presentationStyle="fullScreen">
-      <SafeAreaView style={styles.container}>
+      <AppScreen edges={['top', 'bottom', 'left', 'right']}>
         {/* ========================================================================= */}
         {/* STEP 1: Upload Signed Contract (Empty / File Picked)                      */}
         {/* ========================================================================= */}
@@ -929,10 +929,18 @@ TOTAL DUE: NGN ${totalDue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 />
                 <Text style={styles.shareTenantBtnText}>Share with Tenant</Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.backDashboardBtn}
+                activeOpacity={0.7}
+                onPress={handleBackToDashboard}
+              >
+                <Text style={styles.backDashboardBtnText}>← Back to Dashboard</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
-      </SafeAreaView>
+      </AppScreen>
     </Modal>
   );
 }

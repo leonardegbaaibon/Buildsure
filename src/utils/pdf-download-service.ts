@@ -3,7 +3,7 @@ import * as Sharing from 'expo-sharing';
 import { Paths, File } from 'expo-file-system';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
-import { Alert } from 'react-native';
+import { CustomAlert } from '@/components/ui/custom-alert';
 
 export interface ContractDownloadOptions {
   filename?: string;
@@ -375,10 +375,10 @@ export async function downloadDocumentAsPdf(options: ContractDownloadOptions): P
         dialogTitle: `Download ${cleanPdfName}`,
       });
     } else {
-      Alert.alert('PDF Ready', `Document generated as ${cleanPdfName}.`);
+      CustomAlert.alert('PDF Ready', `Document generated as ${cleanPdfName}.`);
     }
   } catch (error: any) {
     console.error('[Download PDF Error]', error);
-    Alert.alert('Download Error', error.message || 'Failed to generate PDF document.');
+    CustomAlert.alert('Download Error', error.message || 'Failed to generate PDF document.');
   }
 }

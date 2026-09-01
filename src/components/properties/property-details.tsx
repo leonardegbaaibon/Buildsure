@@ -3,7 +3,6 @@ import {
   StyleSheet,
   View,
   Text,
-  SafeAreaView,
   TouchableOpacity,
   Image,
   ScrollView,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { WebView } from 'react-native-webview';
+import { AppScreen } from '@/components/ui/app-screen';
 import { useAppSelector } from '@/store/hooks';
 import { getGoogleStaticMapUrl, getGoogleMapsUrl } from '@/utils/google-maps-service';
 import { UnitDetails } from './unit-details';
@@ -223,7 +223,7 @@ export default function PropertyDetails({ propertyId, onClose, onOpenMenu, onCre
   }, [selectedProperty]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppScreen edges={['top', 'bottom', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -473,7 +473,7 @@ export default function PropertyDetails({ propertyId, onClose, onOpenMenu, onCre
         presentationStyle="fullScreen"
         onRequestClose={() => setIsFullScreenMapVisible(false)}
       >
-        <SafeAreaView style={styles.fullScreenMapSafeArea}>
+        <AppScreen edges={['top', 'bottom', 'left', 'right']} style={styles.fullScreenMapSafeArea}>
           <View style={styles.fullScreenMapContainer}>
             {/* Interactive Leaflet WebView with full 2-finger zoom & drag */}
             <WebView
@@ -562,7 +562,7 @@ export default function PropertyDetails({ propertyId, onClose, onOpenMenu, onCre
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
+        </AppScreen>
       </Modal>
 
       {/* Rental Unit Details Modal */}
@@ -582,7 +582,7 @@ export default function PropertyDetails({ propertyId, onClose, onOpenMenu, onCre
           }}
         />
       )}
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 

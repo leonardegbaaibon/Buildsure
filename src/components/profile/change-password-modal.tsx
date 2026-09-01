@@ -6,14 +6,14 @@ import {
   Modal,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { BackButton } from '../auth/back-button';
+import { CustomAlert } from '@/components/ui/custom-alert';
+import { AppScreen } from '@/components/ui/app-screen';
 
 interface ChangePasswordModalProps {
   visible: boolean;
@@ -31,24 +31,24 @@ export default function ChangePasswordModal({ visible, onClose }: ChangePassword
 
   const handleSave = () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Validation Error', 'All fields are required.');
+      CustomAlert.alert('Validation Error', 'All fields are required.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert('Validation Error', 'New passwords do not match.');
+      CustomAlert.alert('Validation Error', 'New passwords do not match.');
       return;
     }
     if (newPassword.length < 8) {
-      Alert.alert('Validation Error', 'New password must be at least 8 characters.');
+      CustomAlert.alert('Validation Error', 'New password must be at least 8 characters.');
       return;
     }
-    Alert.alert('Success', 'Password changed successfully.');
+    CustomAlert.alert('Success', 'Password changed successfully.');
     onClose();
   };
 
   return (
     <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
+      <AppScreen edges={['top', 'bottom', 'left', 'right']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
@@ -103,8 +103,6 @@ export default function ChangePasswordModal({ visible, onClose }: ChangePassword
                     style={styles.passwordInput}
                     value={newPassword}
                     onChangeText={setNewPassword}
-                    placeholder="Enter Password"
-                    placeholderTextColor="#A0A5B0"
                     secureTextEntry={!isNewVisible}
                     autoCapitalize="none"
                   />
@@ -125,16 +123,14 @@ export default function ChangePasswordModal({ visible, onClose }: ChangePassword
                 </View>
               </View>
 
-              {/* Re-enter Password */}
+              {/* Confirm Password */}
               <View style={styles.fieldContainer}>
-                <Text style={styles.label}>Re-enter Password</Text>
+                <Text style={styles.label}>Confirm New Password</Text>
                 <View style={styles.inputContainer}>
                   <TextInput
                     style={styles.passwordInput}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
-                    placeholder="Enter Password"
-                    placeholderTextColor="#A0A5B0"
                     secureTextEntry={!isConfirmVisible}
                     autoCapitalize="none"
                   />
@@ -166,7 +162,7 @@ export default function ChangePasswordModal({ visible, onClose }: ChangePassword
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </AppScreen>
     </Modal>
   );
 }

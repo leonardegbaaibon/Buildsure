@@ -5,7 +5,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -17,6 +16,7 @@ import { PhoneIllustration } from './phone-illustration';
 import { setUserPhone } from '@/utils/user-store';
 import { authService } from '@/utils/auth-service';
 import { useToast } from '@/components/ui/toast';
+import { AppScreen } from '@/components/ui/app-screen';
 
 interface VerifyPhoneScreenProps {
   onBack: () => void;
@@ -68,7 +68,7 @@ export default function VerifyPhoneScreen({ onBack, onVerify, signUpData }: Veri
   const isButtonDisabled = !phoneNumber.trim() || phoneNumber.length < 7 || isLoading;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppScreen edges={['top', 'bottom', 'left', 'right']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -138,7 +138,7 @@ export default function VerifyPhoneScreen({ onBack, onVerify, signUpData }: Veri
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 

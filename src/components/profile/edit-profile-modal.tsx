@@ -6,57 +6,119 @@ import {
   Modal,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   Image,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import * as ImagePicker from 'expo-image-picker';
 import { BackButton } from '../auth/back-button';
-import { getUserName, getUserPhone, setUserName } from '@/utils/user-store';
-import { useAppSelector } from '@/store/hooks';
+import { CustomAlert } from '@/components/ui/custom-alert';
+import { AppScreen } from '@/components/ui/app-screen';
+import { getUserPhone, setUserName } from '@/utils/user-store';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { updateUserProfile, updateProfileAvatar, fetchUserProfile } from '@/store/slices/auth-slice';
 
 interface EditProfileModalProps {
   visible: boolean;
   onClose: () => void;
-  onUpdate: () => void;
+  onUpdate?: () => void;
 }
 
 export default function EditProfileModal({ visible, onClose, onUpdate }: EditProfileModalProps) {
+  const dispatch = useAppDispatch();
   const profile = useAppSelector((state) => state.auth.profile);
+  const isUpdatingProfile = useAppSelector((state) => state.auth.isUpdatingProfile);
 
   const [firstName, setFirstName] = useState(profile?.firstName || '');
   const [middleName, setMiddleName] = useState(profile?.middleName || '');
   const [lastName, setLastName] = useState(profile?.lastName || '');
+  const [phoneNumber, setPhoneNumber] = useState(profile?.phoneNumber || getUserPhone() || '');
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
   const email = profile?.email || 'User Email';
-  const phoneNumber = profile?.phoneNumber || getUserPhone() || 'Phone Number';
 
   React.useEffect(() => {
     if (profile) {
       setFirstName(profile.firstName || '');
       setMiddleName(profile.middleName || '');
       setLastName(profile.lastName || '');
+      setPhoneNumber(profile.phoneNumber || getUserPhone() || '');
     }
   }, [profile]);
 
-  const handleSave = () => {
+  const handlePickAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        CustomAlert.alert('Permission Required', 'Please allow access to your photos to update your profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setIsUploadingPhoto(true);
+        try {
+          await dispatch(
+            updateProfileAvatar({
+              uri: asset.uri,
+              name: asset.fileName || 'profile_picture.jpg',
+              type: asset.mimeType || 'image/jpeg',
+            })
+          ).unwrap();
+          dispatch(fetchUserProfile());
+          CustomAlert.alert('Success', 'Profile picture updated successfully.');
+        } catch (err: any) {
+          CustomAlert.alert('Upload Failed', err?.message || 'Could not update profile picture.');
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Error picking image:', err);
+    }
+  };
+
+  const handleSave = async () => {
     if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert('Validation Error', 'First Name and Last Name are required.');
+      CustomAlert.alert('Validation Error', 'First Name and Last Name are required.');
       return;
     }
-    const middlePart = middleName.trim() ? ` ${middleName.trim()}` : '';
-    const newFullName = `${firstName.trim()}${middlePart} ${lastName.trim()}`;
-    setUserName(newFullName);
-    onUpdate();
-    Alert.alert('Success', 'Profile updated successfully.');
-    onClose();
+
+    try {
+      await dispatch(
+        updateUserProfile({
+          firstName: firstName.trim(),
+          middleName: middleName.trim() ? middleName.trim() : null,
+          lastName: lastName.trim(),
+          phoneNumber: phoneNumber.trim() || undefined,
+        })
+      ).unwrap();
+
+      const middlePart = middleName.trim() ? ` ${middleName.trim()}` : '';
+      const newFullName = `${firstName.trim()}${middlePart} ${lastName.trim()}`;
+      setUserName(newFullName);
+
+      if (onUpdate) onUpdate();
+      CustomAlert.alert('Success', 'Profile updated successfully.');
+      onClose();
+    } catch (err: any) {
+      CustomAlert.alert('Update Failed', err?.message || 'Could not update profile. Please try again.');
+    }
   };
 
   return (
     <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
+      <AppScreen edges={['top', 'bottom', 'left', 'right']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
@@ -73,21 +135,39 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
             {/* Title & Avatar */}
             <View style={styles.titleRow}>
               <Text style={styles.title}>Edit your profile</Text>
-              
+
               {/* Profile Avatar with Camera Icon Overlay */}
-              <View style={styles.avatarContainer}>
-                <Image
-                  source={require('../../../assets/images/user_avatar.png')}
-                  style={styles.avatarImage}
-                />
-                <TouchableOpacity style={styles.cameraOverlay} activeOpacity={0.8}>
-                  <SymbolView
-                    name={{ ios: 'camera.fill', android: 'photo_camera', web: 'photo_camera' }}
-                    size={12}
-                    tintColor="#FFFFFF"
+              <TouchableOpacity
+                style={styles.avatarContainer}
+                activeOpacity={0.8}
+                onPress={handlePickAvatar}
+                disabled={isUploadingPhoto}
+              >
+                {profile?.profilePicture && profile.profilePicture.startsWith('http') ? (
+                  <Image
+                    source={{ uri: profile.profilePicture }}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
                   />
-                </TouchableOpacity>
-              </View>
+                ) : (
+                  <Image
+                    source={require('../../../assets/images/user_avatar.png')}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                  />
+                )}
+                <View style={styles.cameraOverlay}>
+                  {isUploadingPhoto ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <SymbolView
+                      name={{ ios: 'camera.fill', android: 'photo_camera', web: 'photo_camera' }}
+                      size={14}
+                      tintColor="#FFFFFF"
+                    />
+                  )}
+                </View>
+              </TouchableOpacity>
             </View>
 
             {/* Form Fields */}
@@ -111,7 +191,7 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
                   style={styles.input}
                   value={middleName}
                   onChangeText={setMiddleName}
-                  placeholder="Enter middle name"
+                  placeholder="Enter middle name (optional)"
                   placeholderTextColor="#A0A5B0"
                 />
               </View>
@@ -128,14 +208,15 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
                 />
               </View>
 
-              {/* Email (Read Only with Padlock) */}
+              {/* Email (Read only with Lock icon) */}
               <View style={styles.fieldContainer}>
-                <Text style={styles.label}>Email</Text>
+                <Text style={styles.label}>Email Address</Text>
                 <View style={styles.readOnlyContainer}>
                   <TextInput
                     style={styles.readOnlyInput}
                     value={email}
                     editable={false}
+                    placeholderTextColor="#A0A5B0"
                   />
                   <SymbolView
                     name={{ ios: 'lock.fill', android: 'lock', web: 'lock' }}
@@ -145,21 +226,17 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
                 </View>
               </View>
 
-              {/* Phone Number (Read Only with Padlock) */}
+              {/* Phone Number */}
               <View style={styles.fieldContainer}>
                 <Text style={styles.label}>Phone Number</Text>
-                <View style={styles.readOnlyContainer}>
-                  <TextInput
-                    style={styles.readOnlyInput}
-                    value={phoneNumber}
-                    editable={false}
-                  />
-                  <SymbolView
-                    name={{ ios: 'lock.fill', android: 'lock', web: 'lock' }}
-                    size={16}
-                    tintColor="#8A8D93"
-                  />
-                </View>
+                <TextInput
+                  style={styles.input}
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  placeholder="Enter phone number (+234...)"
+                  placeholderTextColor="#A0A5B0"
+                  keyboardType="phone-pad"
+                />
               </View>
             </View>
 
@@ -168,12 +245,17 @@ export default function EditProfileModal({ visible, onClose, onUpdate }: EditPro
               style={styles.saveBtn}
               activeOpacity={0.8}
               onPress={handleSave}
+              disabled={isUpdatingProfile}
             >
-              <Text style={styles.saveBtnText}>Save Changes</Text>
+              {isUpdatingProfile ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.saveBtnText}>Save Changes</Text>
+              )}
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </AppScreen>
     </Modal>
   );
 }
@@ -266,7 +348,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 52,
-    backgroundColor: '#F5F2EC', // Slightly grayed out cream background
+    backgroundColor: '#F5F2EC',
     borderColor: '#EBE6DC',
     borderWidth: 1.5,
     borderRadius: 10,

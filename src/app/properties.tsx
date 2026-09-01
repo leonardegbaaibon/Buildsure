@@ -3,7 +3,6 @@ import {
   StyleSheet,
   View,
   Text,
-  SafeAreaView,
   TextInput,
   TouchableOpacity,
   Image,
@@ -12,12 +11,13 @@ import {
   useWindowDimensions,
   Animated,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { useToast } from '@/components/ui/toast';
+import { CustomAlert } from '@/components/ui/custom-alert';
 import { SymbolView } from 'expo-symbols';
 import { router } from 'expo-router';
 import { AppBottomSheet } from '@/components/bottom-sheet';
+import { AppScreen } from '@/components/ui/app-screen';
 import {
   setTabBarHidden,
   setActiveTab as setGlobalActiveTab,
@@ -210,8 +210,9 @@ export default function PropertiesScreen() {
   return (
     <View style={styles.container}>
       {/* 1. Main Properties List View (Base Layer) */}
-      <SafeAreaView
-        style={styles.container}
+      <AppScreen
+        edges={['top', 'left', 'right']}
+        style={{ flex: 1 }}
         pointerEvents={(!selectedPropertyId && !isAddingProperty) ? 'auto' : 'none'}
       >
         {/* Header */}
@@ -620,7 +621,7 @@ export default function PropertiesScreen() {
                 const targetId = activePropertyForMenu?.id || reduxProperties[0]?.id;
                 setIsMenuVisible(false);
                 if (targetId) {
-                  Alert.alert(
+                  CustomAlert.alert(
                     'Delete Property',
                     'Are you sure you want to delete this property? This action cannot be undone.',
                     [
@@ -646,7 +647,7 @@ export default function PropertiesScreen() {
             },
           ]}
         />
-      </SafeAreaView>
+      </AppScreen>
 
       {/* 2. Details View Layer */}
       {renderDetails && (

@@ -3,7 +3,6 @@ import {
   StyleSheet,
   View,
   Text,
-  SafeAreaView,
   TextInput,
   TouchableOpacity,
   Image,
@@ -11,6 +10,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { AppScreen } from '@/components/ui/app-screen';
 import { SymbolView } from 'expo-symbols';
 import { AppBottomSheet } from '@/components/bottom-sheet';
 import { SegmentedControl } from '@/components/ui/segmented-control';
@@ -308,7 +308,7 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppScreen edges={['top', 'bottom', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -967,7 +967,7 @@ export default function AddPropertyForm({ onClose, onProceed }: AddPropertyFormP
           { label: 'Kano', onPress: () => setFormState('Kano') },
         ]}
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 

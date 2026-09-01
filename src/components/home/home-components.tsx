@@ -69,7 +69,7 @@ export function NotificationNudge({ message, timeAgo, onClose, onNotificationPre
       onPress={onNotificationPress}
     >
       <Image
-        source={require('../../../assets/images/onboarding_1.png')}
+        source={require('../../../assets/images/onboarding_1.jpg')}
         style={styles.nudgeImage}
         resizeMode="cover"
       />

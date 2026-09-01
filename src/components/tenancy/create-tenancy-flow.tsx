@@ -4,16 +4,16 @@ import {
   View,
   Text,
   Modal,
-  SafeAreaView,
   TouchableOpacity,
   Image,
   ScrollView,
-  Alert,
   Platform,
   Animated,
   ActivityIndicator,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { CustomAlert } from '@/components/ui/custom-alert';
+import { AppScreen } from '@/components/ui/app-screen';
 import { AppBottomSheet } from '@/components/bottom-sheet';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -309,7 +309,7 @@ export function CreateTenancyFlow({
 
   const selectUnit = (unit: UnitOption) => {
     if (unit.status === 'occupied') {
-      Alert.alert('Unit Occupied', `Unit ${unit.unitIdentifier || unit.id} is currently occupied.`);
+      CustomAlert.alert('Unit Occupied', `Unit ${unit.unitIdentifier || unit.id} is currently occupied.`);
       return;
     }
     setSelectedUnit(unit.id === selectedUnit ? null : unit.id);
@@ -364,7 +364,7 @@ export function CreateTenancyFlow({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please allow access to your photo library to select receipt images.');
+        CustomAlert.alert('Permission Required', 'Please allow access to your photo library to select receipt images.');
         return;
       }
 
@@ -410,14 +410,14 @@ export function CreateTenancyFlow({
   const handleUploadPress = () => {
     const currentList = activeDocTab === 'contract' ? contractFiles : receiptFiles;
     if (currentList.length >= 5) {
-      Alert.alert('Limit Reached', 'You can upload up to 5 documents.');
+      CustomAlert.alert('Limit Reached', 'You can upload up to 5 documents.');
       return;
     }
 
     if (activeDocTab === 'contract') {
       pickDocument();
     } else {
-      Alert.alert('Upload Receipt', 'Select upload source:', [
+      CustomAlert.alert('Upload Receipt', 'Select upload source:', [
         { text: 'Choose from Files (PDF)', onPress: pickDocument },
         { text: 'Choose from Photos (Image)', onPress: pickImage },
         { text: 'Cancel', style: 'cancel' },
@@ -507,11 +507,11 @@ export function CreateTenancyFlow({
 
     if (currentStep === 'property') {
       if (!selectedProperty) {
-        Alert.alert('Property Required', 'Please select a property.');
+        CustomAlert.alert('Property Required', 'Please select a property.');
         return;
       }
       if (!selectedUnit) {
-        Alert.alert('Unit Required', 'Please select a vacant unit.');
+        CustomAlert.alert('Unit Required', 'Please select a vacant unit.');
         return;
       }
       setWizardStep(steps.indexOf('resident'));
@@ -523,11 +523,11 @@ export function CreateTenancyFlow({
     } else if (currentStep === 'rent') {
       const numRent = Number(rentAmount.replace(/,/g, ''));
       if (!numRent || numRent <= 0) {
-        Alert.alert('Rent Required', 'Please enter a valid rent amount.');
+        CustomAlert.alert('Rent Required', 'Please enter a valid rent amount.');
         return;
       }
       if (!rentStartDate) {
-        Alert.alert('Start Date Required', 'Please select a tenancy start date.');
+        CustomAlert.alert('Start Date Required', 'Please select a tenancy start date.');
         return;
       }
       if (effectiveTenancyType === 'existing') {
@@ -588,7 +588,7 @@ export function CreateTenancyFlow({
                 ? err
                 : err?.message ||
                   'Network error: Failed to create tenancy agreement. Please check your connection and try again.';
-            Alert.alert('Unable to Create Tenancy', errMsg);
+            CustomAlert.alert('Unable to Create Tenancy', errMsg);
           });
       }
     } else if (currentStep === 'contract_preview') {
@@ -650,7 +650,7 @@ export function CreateTenancyFlow({
               ? err
               : err?.message ||
                 'Network error: Failed to record existing tenancy. Please check your connection and try again.';
-          Alert.alert('Unable to Record Tenancy', errMsg);
+          CustomAlert.alert('Unable to Record Tenancy', errMsg);
         });
     }
   };
@@ -704,7 +704,7 @@ export function CreateTenancyFlow({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
-      <SafeAreaView style={styles.container}>
+      <AppScreen edges={['top', 'bottom', 'left', 'right']}>
         {/* Top Toast Banner for Recorded Tenancy */}
         {showToastBanner && (
           <View style={styles.topToastContainer}>
@@ -1054,7 +1054,7 @@ export function CreateTenancyFlow({
           onGoToDashboard={handleGoToDashboard}
           onCreateAnother={handleCreateAnother}
         />
-      </SafeAreaView>
+      </AppScreen>
     </Modal>
   );
 }
