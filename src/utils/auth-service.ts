@@ -16,6 +16,9 @@ export interface UserProfile {
   profilePicture?: string | null;
   isEmailVerified?: boolean;
   isPhoneVerified?: boolean;
+  role?: string;
+  authProvider?: string;
+  createdAt?: string;
 }
 
 export interface SignUpPayload {
@@ -27,6 +30,8 @@ export interface SignUpPayload {
 }
 
 export interface SignInResponse {
+  success?: boolean;
+  message?: string;
   token?: string;
   accessToken?: string;
   refreshToken?: string;
@@ -238,8 +243,15 @@ export const authService = {
 
   /**
    * 8. Google Signin API
+   * POST /api/v1/auth/google
+   * Public route (no auth header). Rate limited: 20 reqs / 15 mins.
+   * Body: { idToken: string }
    */
   async signInWithGoogle(idToken: string): Promise<UserProfile> {
+    if (!idToken || typeof idToken !== 'string') {
+      throw new Error('Google ID token is required.');
+    }
+
     const res = await api.post<SignInResponse>('/auth/google', { idToken });
     
     const token = 
@@ -266,14 +278,19 @@ export const authService = {
     
     const profile: UserProfile = user || {
       id: '',
-      firstName: 'Google User',
+      firstName: 'User',
       lastName: '',
-      email: 'google.user@example.com',
+      email: '',
+      isEmailVerified: true,
+      isPhoneVerified: false,
+      role: 'landlord',
+      authProvider: 'google',
     };
     
     await storage.setItem(USER_KEY, JSON.stringify(profile));
     
-    setUserName(`${profile.firstName} ${profile.lastName}`.trim() || profile.email);
+    const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.email || 'User';
+    setUserName(fullName);
     if (profile.phoneNumber) {
       setUserPhone(profile.phoneNumber);
     }

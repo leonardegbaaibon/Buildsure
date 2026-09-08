@@ -49,23 +49,41 @@ export function SocialLoginButton({ provider, action, style }: SocialLoginButton
     setIsLoading(true);
     try {
       if (isGoogle) {
-        // Calls POST /auth/google
-        await authService.signInWithGoogle(token.trim());
+        // Calls POST /auth/google with { idToken: string }
+        const profile = await authService.signInWithGoogle(token.trim());
         showToast('Successfully authenticated with Google!', 'success');
+        setIsSheetVisible(false);
+
+        // Client requirement: Newly created accounts (or accounts without phone/unverified phone)
+        // route into phone collection. Existing linked accounts with verified phone enter the app.
+        if (!profile.phoneNumber || !profile.isPhoneVerified) {
+          setFlowState('verify-phone');
+        } else {
+          setFlowState('app');
+        }
       } else {
         // Calls POST /auth/apple
-        await authService.signInWithApple(token.trim(), firstName.trim(), lastName.trim());
+        const profile = await authService.signInWithApple(token.trim(), firstName.trim(), lastName.trim());
         showToast('Successfully authenticated with Apple!', 'success');
+        setIsSheetVisible(false);
+
+        if (!profile.phoneNumber || !profile.isPhoneVerified) {
+          setFlowState('verify-phone');
+        } else {
+          setFlowState('app');
+        }
       }
-      
-      setIsSheetVisible(false);
-      // Route user immediately into the app dashboard on successful auth
-      setFlowState('app');
     } catch (error: any) {
-      showToast(
-        error.message || `Authentication failed. Make sure your bearer token is valid.`,
-        'error'
-      );
+      const errorMessage =
+        error.status === 429
+          ? 'Too many requests. Please try again later.'
+          : error.status === 401
+          ? 'Invalid Google token. The token was rejected or expired.'
+          : error.status === 400
+          ? 'Google ID token is required.'
+          : error.message || 'Authentication failed. Please check your token and try again.';
+
+      showToast(errorMessage, 'error');
     } finally {
       setIsLoading(false);
     }

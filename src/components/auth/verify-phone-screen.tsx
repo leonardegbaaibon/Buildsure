@@ -15,6 +15,7 @@ import { BackButton } from './back-button';
 import { PhoneIllustration } from './phone-illustration';
 import { setUserPhone } from '@/utils/user-store';
 import { authService } from '@/utils/auth-service';
+import { profileService } from '@/utils/profile-service';
 import { useToast } from '@/components/ui/toast';
 import { AppScreen } from '@/components/ui/app-screen';
 
@@ -47,14 +48,28 @@ export default function VerifyPhoneScreen({ onBack, onVerify, signUpData }: Veri
     
     setIsLoading(true);
     try {
-      // Call real signup endpoint
-      const userId = await authService.signUp({
-        ...signUpData,
-        phoneNumber: fullNumber,
-      });
+      const activeUser = await authService.checkSession();
+      let targetUserId = '';
+
+      if (activeUser && activeUser.id) {
+        // User already created via Google/Apple OAuth - update phone
+        await profileService.updateProfile({ phoneNumber: fullNumber });
+        targetUserId = activeUser.id;
+        try {
+          await authService.resendPhoneCode(targetUserId);
+        } catch {
+          // If server sends OTP automatically on update, ignore
+        }
+      } else {
+        // Standard email & password signup
+        targetUserId = await authService.signUp({
+          ...signUpData,
+          phoneNumber: fullNumber,
+        });
+      }
       
       setUserPhone(fullNumber);
-      onVerify(fullNumber, userId);
+      onVerify(fullNumber, targetUserId);
     } catch (error: any) {
       showToast(
         error.message || 'An error occurred during account creation. Please try again.',
