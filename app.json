@@ -45,7 +45,10 @@
           "photosPermission": "The app accesses your photos to let you upload property and agreement images."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-font",
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
