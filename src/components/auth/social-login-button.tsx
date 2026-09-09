@@ -1,18 +1,42 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
-  TextInput,
   ActivityIndicator,
   ViewStyle,
+  Platform,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { AppBottomSheet } from '../bottom-sheet';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { authService } from '@/utils/auth-service';
 import { useToast } from '@/components/ui/toast';
 import { setFlowState } from '@/utils/user-store';
+
+// Configure Google Sign-In safely without throwing uncaught promise rejections on iOS
+const initGoogleSignin = async () => {
+  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
+  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || undefined;
+
+  // On iOS, Google Sign-In requires an iOS client ID or GoogleService-Info.plist.
+  // We avoid calling configure() until a client ID is provided.
+  if (Platform.OS === 'ios' && !iosClientId) {
+    return;
+  }
+
+  try {
+    await GoogleSignin.configure({
+      webClientId,
+      iosClientId,
+      offlineAccess: false,
+    });
+  } catch (err) {
+    if (__DEV__) {
+      console.warn('[GoogleSignin] Configuration initialization skipped:', err);
+    }
+  }
+};
 
 interface SocialLoginButtonProps {
   provider: 'google' | 'apple';
@@ -22,58 +46,76 @@ interface SocialLoginButtonProps {
 
 export function SocialLoginButton({ provider, action, style }: SocialLoginButtonProps) {
   const { showToast } = useToast();
-  const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
-  // Simulated form inputs for OAuth testing
-  const isGoogle = provider === 'google';
-  const defaultToken = isGoogle ? 'staging-google-id-token-xyz123' : 'staging-apple-identity-token-abc789';
-  const [token, setToken] = useState(defaultToken);
-  const [firstName, setFirstName] = useState('John');
-  const [lastName, setLastName] = useState('Doe');
+  const [isAppleAvailable, setIsAppleAvailable] = useState(Platform.OS === 'ios');
 
-  const label = action === 'signup' 
+  const isGoogle = provider === 'google';
+  const label = action === 'signup'
     ? (isGoogle ? 'Sign up with Google' : 'Sign up with Apple')
     : (isGoogle ? 'Sign in with Google' : 'Sign in with Apple');
 
-  const handleOAuthPress = () => {
-    setIsSheetVisible(true);
+  useEffect(() => {
+    if (isGoogle) {
+      initGoogleSignin();
+    } else if (Platform.OS === 'ios') {
+      AppleAuthentication.isAvailableAsync().then(setIsAppleAvailable).catch(() => setIsAppleAvailable(false));
+    }
+  }, [isGoogle]);
+
+  const handlePress = async () => {
+    if (isLoading) return;
+
+    if (isGoogle) {
+      await handleGoogleSignIn();
+    } else {
+      await handleAppleSignIn();
+    }
   };
 
-  const handleAuthenticate = async () => {
-    if (!token.trim()) {
-      showToast('Please enter a token to authenticate.', 'error');
-      return;
-    }
-
+  const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      if (isGoogle) {
-        // Calls POST /auth/google with { idToken: string }
-        const profile = await authService.signInWithGoogle(token.trim());
-        showToast('Successfully authenticated with Google!', 'success');
-        setIsSheetVisible(false);
+      if (Platform.OS === 'ios' && !process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID) {
+        showToast(
+          'Google Sign-In on iOS requires EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in your .env file or GoogleService-Info.plist.',
+          'error'
+        );
+        setIsLoading(false);
+        return;
+      }
 
-        // Client requirement: Newly created accounts (or accounts without phone/unverified phone)
-        // route into phone collection. Existing linked accounts with verified phone enter the app.
-        if (!profile.phoneNumber || !profile.isPhoneVerified) {
-          setFlowState('verify-phone');
-        } else {
-          setFlowState('app');
-        }
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const signInResult = await GoogleSignin.signIn();
+      
+      const idToken = signInResult.data?.idToken || (signInResult as any).idToken;
+
+      if (!idToken) {
+        throw new Error('No Google ID token was returned.');
+      }
+
+      // Call POST /api/v1/auth/google
+      const profile = await authService.signInWithGoogle(idToken);
+      showToast('Successfully authenticated with Google!', 'success');
+
+      // Newly created accounts or unverified phone accounts route to phone collection
+      if (!profile.phoneNumber || !profile.isPhoneVerified) {
+        setFlowState('verify-phone');
       } else {
-        // Calls POST /auth/apple
-        const profile = await authService.signInWithApple(token.trim(), firstName.trim(), lastName.trim());
-        showToast('Successfully authenticated with Apple!', 'success');
-        setIsSheetVisible(false);
-
-        if (!profile.phoneNumber || !profile.isPhoneVerified) {
-          setFlowState('verify-phone');
-        } else {
-          setFlowState('app');
-        }
+        setFlowState('app');
       }
     } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        // User cancelled the sign-in flow, no error needed
+        return;
+      }
+      if (error.code === statusCodes.IN_PROGRESS) {
+        return;
+      }
+      if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        showToast('Google Play Services is not available or outdated.', 'error');
+        return;
+      }
+
       const errorMessage =
         error.status === 429
           ? 'Too many requests. Please try again later.'
@@ -81,7 +123,7 @@ export function SocialLoginButton({ provider, action, style }: SocialLoginButton
           ? 'Invalid Google token. The token was rejected or expired.'
           : error.status === 400
           ? 'Google ID token is required.'
-          : error.message || 'Authentication failed. Please check your token and try again.';
+          : error.message || 'Google authentication failed. Please try again.';
 
       showToast(errorMessage, 'error');
     } finally {
@@ -89,93 +131,76 @@ export function SocialLoginButton({ provider, action, style }: SocialLoginButton
     }
   };
 
+  const handleAppleSignIn = async () => {
+    setIsLoading(true);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        throw new Error('No identity token received from Apple.');
+      }
+
+      const givenName = credential.fullName?.givenName || undefined;
+      const familyName = credential.fullName?.familyName || undefined;
+
+      const profile = await authService.signInWithApple(
+        credential.identityToken,
+        givenName,
+        familyName
+      );
+
+      showToast('Successfully authenticated with Apple!', 'success');
+
+      if (!profile.phoneNumber || !profile.isPhoneVerified) {
+        setFlowState('verify-phone');
+      } else {
+        setFlowState('app');
+      }
+    } catch (error: any) {
+      if (error.code === 'ERR_REQUEST_CANCELED') {
+        // User cancelled Apple sign-in
+        return;
+      }
+
+      showToast(
+        error.message || 'Apple authentication failed. Please try again.',
+        'error'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isGoogle && !isAppleAvailable && Platform.OS !== 'ios') {
+    // Hide Apple sign in button on non-supported platforms
+    return null;
+  }
+
   return (
-    <>
-      <TouchableOpacity 
-        style={[styles.socialButton, style]} 
-        activeOpacity={0.8}
-        onPress={handleOAuthPress}
-      >
-        {isGoogle ? (
-          <FontAwesome name="google" size={18} color="#EA4335" style={styles.socialIcon} />
-        ) : (
-          <FontAwesome name="apple" size={20} color="#000000" style={styles.socialIcon} />
-        )}
-        <Text style={styles.socialButtonText}>{label}</Text>
-      </TouchableOpacity>
-
-      {/* Social Auth Staging Simulator Sheet */}
-      <AppBottomSheet
-        visible={isSheetVisible}
-        onClose={() => setIsSheetVisible(false)}
-        showGlowBackground={true}
-        title={isGoogle ? "Google Sign In" : "Apple Sign In"}
-      >
-        <View style={styles.sheetContent}>
-          <Text style={styles.sheetSubtitle}>
-            OAuth credentials simulation for testing the backend server API integration.
-          </Text>
-
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>
-              {isGoogle ? 'idToken' : 'identityToken'}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder={isGoogle ? 'Enter idToken' : 'Enter identityToken'}
-              placeholderTextColor="#A0A5B0"
-              value={token}
-              onChangeText={setToken}
-              autoCapitalize="none"
-              editable={!isLoading}
-            />
-          </View>
-
-          {!isGoogle && (
-            <View style={styles.row}>
-              <View style={[styles.fieldContainer, { flex: 1 }]}>
-                <Text style={styles.label}>First Name</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="First Name"
-                  placeholderTextColor="#A0A5B0"
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  editable={!isLoading}
-                />
-              </View>
-
-              <View style={[styles.fieldContainer, { flex: 1 }]}>
-                <Text style={styles.label}>Last Name</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Last Name"
-                  placeholderTextColor="#A0A5B0"
-                  value={lastName}
-                  onChangeText={setLastName}
-                  editable={!isLoading}
-                />
-              </View>
-            </View>
+    <TouchableOpacity
+      style={[styles.socialButton, style, isLoading && styles.socialButtonDisabled]}
+      activeOpacity={0.8}
+      onPress={handlePress}
+      disabled={isLoading}
+    >
+      {isLoading ? (
+        <ActivityIndicator size="small" color="#1A1C1E" />
+      ) : (
+        <>
+          {isGoogle ? (
+            <FontAwesome name="google" size={18} color="#EA4335" style={styles.socialIcon} />
+          ) : (
+            <FontAwesome name="apple" size={20} color="#000000" style={styles.socialIcon} />
           )}
-
-          <TouchableOpacity
-            style={[styles.authButton, isLoading && styles.authButtonDisabled]}
-            onPress={handleAuthenticate}
-            disabled={isLoading}
-            activeOpacity={0.8}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.authButtonText}>
-                Authenticate with {isGoogle ? 'Google' : 'Apple'} API
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </AppBottomSheet>
-    </>
+          <Text style={styles.socialButtonText}>{label}</Text>
+        </>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -197,6 +222,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
   },
+  socialButtonDisabled: {
+    opacity: 0.7,
+  },
   socialIcon: {
     position: 'absolute',
     left: 20,
@@ -206,70 +234,5 @@ const styles = StyleSheet.create({
     color: '#6C757D',
     fontSize: 14,
     fontWeight: '600',
-  },
-  sheetContent: {
-    width: '100%',
-    gap: 16,
-    paddingTop: 8,
-  },
-  sheetSubtitle: {
-    fontFamily: 'Satoshi-Regular',
-    fontSize: 13,
-    color: '#6C757D',
-    lineHeight: 18,
-    marginBottom: 8,
-  },
-  fieldContainer: {
-    gap: 6,
-    width: '100%',
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  label: {
-    fontFamily: 'Satoshi-Medium',
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1A1C1E',
-  },
-  input: {
-    fontFamily: 'Satoshi-Regular',
-    height: 48,
-    backgroundColor: '#FFFDF9',
-    borderColor: '#EBE6DC',
-    borderWidth: 1.5,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    color: '#1A1C1E',
-    fontSize: 14,
-    width: '100%',
-  },
-  authButton: {
-    height: 52,
-    backgroundColor: '#FFA726',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 12,
-    shadowColor: '#FFA726',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
-    width: '100%',
-  },
-  authButtonDisabled: {
-    backgroundColor: '#FFE0B2',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  authButtonText: {
-    fontFamily: 'Satoshi-Bold',
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.5,
   },
 });
