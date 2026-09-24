@@ -162,15 +162,22 @@ export function SocialLoginButton({ provider, action, style }: SocialLoginButton
         setFlowState('app');
       }
     } catch (error: any) {
-      if (error.code === 'ERR_REQUEST_CANCELED') {
+      if (
+        error.code === 'ERR_REQUEST_CANCELED' ||
+        error.code === 'ERR_CANCELED' ||
+        error.message?.includes?.('canceled') ||
+        error.message?.includes?.('cancelled')
+      ) {
         // User cancelled Apple sign-in
         return;
       }
 
-      showToast(
-        error.message || 'Apple authentication failed. Please try again.',
-        'error'
-      );
+      let errorMsg = error.message || 'Apple authentication failed. Please try again.';
+      if (error.code === 'ERR_REQUEST_UNKNOWN' || error.message?.includes?.('RequestUnknownException')) {
+        errorMsg = 'Sign in with Apple failed. Please ensure you are signed into an Apple ID in iOS Settings, or test on a physical device.';
+      }
+
+      showToast(errorMsg, 'error');
     } finally {
       setIsLoading(false);
     }
